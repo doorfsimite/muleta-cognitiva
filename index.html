@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Grafo Filosófico</title>
+    <style>
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+      }
+      #chart {
+        width: 100%;
+        height: 100%;
+      }
+      .hint {
+        position: absolute;
+        top: 8px;
+        left: 12px;
+        font: 12px/1.4 system-ui, -apple-system, Segoe UI, Roboto, Helvetica,
+          Arial, sans-serif;
+        color: #666;
+        background: rgba(255, 255, 255, 0.85);
+        padding: 6px 8px;
+        border-radius: 6px;
+      }
+      .controls {
+        position: absolute;
+        top: 8px;
+        right: 12px;
+        font: 12px/1.4 system-ui, -apple-system, Segoe UI, Roboto, Helvetica,
+          Arial, sans-serif;
+        background: rgba(255, 255, 255, 0.9);
+        padding: 8px 12px;
+        border-radius: 6px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+      }
+      .controls label {
+        display: block;
+        margin-bottom: 4px;
+        font-weight: 500;
+        color: #333;
+      }
+      .controls select {
+        padding: 4px 8px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        font-size: 12px;
+        background: white;
+        cursor: pointer;
+      }
+    </style>
+    <!-- ECharts (Apache) via CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+  </head>
+  <body>
+    <div id="chart"></div>
+    <div class="hint">
+      Arraste para mover, role para zoom. Carregando dados de "memory"…
+    </div>
+    <div class="controls">
+      <label for="graphType">Tipo de Visualização:</label>
+      <select id="graphType" onchange="changeGraphType()">
+        <option value="force">Grafo de Força (Force-directed)</option>
+        <option value="circular">Grafo Circular</option>
+        <option value="sankey">Sankey (Fluxo de Relações)</option>
+      </select>
+    </div>
+    <script>
+      const el = document.getElementById('chart')
+      const chart = echarts.init(el, null, { renderer: 'canvas' })
+
+      let currentData = null // Armazena os dados carregados
+
+      function escapeHtml(s) {
+        return String(s)
+          .replaceAll('&', '&amp;')
+          .replaceAll('<', '&lt;')
+          .replaceAll('>', '&gt;')
+          .replaceAll('"', '&quot;')
+          .replaceAll("'", '&#39;')
+      }
+
+      async function loadData() {
+        const res = await fetch('./memory')
+        if (!res.ok) throw new Error('Falha ao carregar arquivo "memory"')
+        const text = await res.text()
+        const lines = text
+          .split(/\r?\n/)
+          .map((l) => l.trim())
+          .filter(Boolean)
+
+        const items = []
+        for (const l of lines) {
+          try {
+            items.push(JSON.parse(l))
+          } catch (e) {
+            console.warn('Linha inválida ignorada:', l)
+          }
+        }
+
+        const entities = items.filter((x) => x.type === 'entity')
+        const relations = items.filter((x) => x.type === 'relation')
+
+        const categoryIndex = new Map()
+        const categories = []
+        function ensureCategory(name) {
+          if (!categoryIndex.has(name)) {
+            categoryIndex.set(name, categories.length)
+            categories.push({ name })
+          }
+          return categoryIndex.get(name)
+        }
+
+        const nodes = entities.map((ent) => {
+          const catIdx = ensureCategory(ent.entityType || 'sem categoria')
+          return {
+            name: ent.name,
+            entityType: ent.entityType,
+            category: catIdx,
+            value: (ent.observations && ent.observations.length) || 1,
+            observations: ent.observations || [],
+            label: { show: true }
+          }
+        })
+
+        const nodeByName = new Map(nodes.map((n) => [n.name, n]))
+
+        const links = relations
+          .map((r) => ({
+            source: r.from,
+            target: r.to,
+            relationType: r.relationType,
+            from: r.from,
+            to: r.to,
+            lineStyle: { curveness: 0.1 }
+          }))
+          .filter((l) => nodeByName.has(l.source) && nodeByName.has(l.target))
+
+        return { nodes, links, categories, entities, relations }
+      }
+
+      function makeForceOption(nodes, links, categories) {
+        return {
+          backgroundColor: '#fff',
+          tooltip: {
+            trigger: 'item',
+            confine: true,
+            formatter: function (params) {
+              if (params.dataType === 'node') {
+                const d = params.data || {}
+                const header =
+                  `<b>${escapeHtml(d.name)}</b>` +
+                  (d.entityType
+                    ? ` <span style="color:#999">(${escapeHtml(
+                        d.entityType
+                      )})</span>`
+                    : '')
+                if (Array.isArray(d.observations) && d.observations.length) {
+                  return (
+                    header +
+                    '<br/>' +
+                    d.observations
+                      .map((o) => `• ${escapeHtml(o)}`)
+                      .join('<br/>')
+                  )
+                }
+                return header
+              } else if (params.dataType === 'edge') {
+                const e = params.data || {}
+                const rel = e.relationType
+                  ? `<b>${escapeHtml(e.relationType)}</b>`
+                  : ''
+                return `${escapeHtml(
+                  e.from || params.data.source || ''
+                )} — ${rel} → ${escapeHtml(e.to || params.data.target || '')}`
+              }
+              return params.name || ''
+            }
+          },
+          legend: categories.length
+            ? [
+                {
+                  data: categories.map((c) => c.name),
+                  left: 'left',
+                  orient: 'vertical',
+                  selectedMode: true,
+                  textStyle: { fontSize: 12 }
+                }
+              ]
+            : undefined,
+          series: [
+            {
+              type: 'graph',
+              layout: 'force',
+              data: nodes,
+              links: links,
+              categories: categories,
+              roam: true,
+              focusNodeAdjacency: true,
+              edgeSymbol: ['none', 'arrow'],
+              edgeSymbolSize: 10,
+              label: { show: true, position: 'right', formatter: '{b}' },
+              edgeLabel: {
+                show: true,
+                formatter: function (p) {
+                  return p.data && p.data.relationType
+                    ? p.data.relationType
+                    : ''
+                },
+                fontSize: 11
+              },
+              lineStyle: { color: 'source', width: 1.2, opacity: 0.9 },
+              emphasis: { focus: 'adjacency', lineStyle: { width: 2 } },
+              force: { repulsion: 1200, edgeLength: 400, gravity: 0.03 }
+            }
+          ]
+        }
+      }
+
+      function makeCircularOption(nodes, links, categories) {
+        return {
+          backgroundColor: '#fff',
+          tooltip: {
+            trigger: 'item',
+            confine: true,
+            formatter: function (params) {
+              const d = params.data || {}
+              const header =
+                `<b>${escapeHtml(d.name)}</b>` +
+                (d.entityType
+                  ? ` <span style="color:#999">(${escapeHtml(
+                      d.entityType
+                    )})</span>`
+                  : '')
+              if (Array.isArray(d.observations) && d.observations.length) {
+                return (
+                  header +
+                  '<br/>' +
+                  d.observations.map((o) => `• ${escapeHtml(o)}`).join('<br/>')
+                )
+              }
+              return header
+            }
+          },
+          legend: categories.length
+            ? [
+                {
+                  data: categories.map((c) => c.name),
+                  left: 'left',
+                  orient: 'vertical',
+                  selectedMode: true,
+                  textStyle: { fontSize: 12 }
+                }
+              ]
+            : undefined,
+          series: [
+            {
+              type: 'graph',
+              layout: 'circular',
+              data: nodes,
+              links: links,
+              categories: categories,
+              roam: true,
+              focusNodeAdjacency: true,
+              edgeSymbol: ['none', 'arrow'],
+              edgeSymbolSize: 8,
+              label: { show: true, position: 'right', formatter: '{b}' },
+              edgeLabel: {
+                show: true,
+                formatter: function (p) {
+                  return p.data && p.data.relationType
+                    ? p.data.relationType
+                    : ''
+                },
+                fontSize: 11
+              },
+              circular: { rotateLabel: true },
+              lineStyle: { color: 'source', width: 1.2, opacity: 0.9 },
+              emphasis: { focus: 'adjacency', lineStyle: { width: 2 } }
+            }
+          ]
+        }
+      }
+
+      function changeGraphType() {
+        if (!currentData) return
+
+        const type = document.getElementById('graphType').value
+        const { nodes, links, categories } = currentData
+
+        let option
+        switch (type) {
+          case 'force':
+            option = makeForceOption(nodes, links, categories)
+            break
+          case 'circular':
+            option = makeCircularOption(nodes, links, categories)
+            break
+          case 'sankey':
+            option = makeSankeyOption(nodes, links)
+            break
+          default:
+            option = makeForceOption(nodes, links, categories)
+        }
+
+        chart.setOption(option, true)
+      }
+
+      ;(async function init() {
+        try {
+          currentData = await loadData()
+          const { nodes, links, categories } = currentData
+          chart.setOption(makeForceOption(nodes, links, categories))
+          window.addEventListener('resize', () => chart.resize())
+          document.querySelector('.hint').textContent =
+            'Arraste para mover, role para zoom.'
+        } catch (err) {
+          console.error(err)
+          chart.setOption({
+            title: {
+              text: 'Erro ao carregar dados',
+              left: 'center',
+              top: 'middle'
+            }
+          })
+          document.querySelector('.hint').textContent =
+            'Erro ao carregar "memory". Sirva este diretório via um servidor local.'
+        }
+      })()
+    </script>
+  </body>
+</html>
