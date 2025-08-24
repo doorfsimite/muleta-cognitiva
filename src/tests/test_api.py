@@ -95,9 +95,9 @@ class TestEntityEndpoints:
         assert response.status_code == 200
         data = response.json()
         assert "entities" in data
-        assert "total" in data
+        assert "total_count" in data
         assert len(data["entities"]) == 2
-        assert data["total"] == 2
+        assert data["total_count"] == 2
         assert data["entities"][0]["name"] == "Filosofia"
         assert data["entities"][1]["name"] == "Platão"
 

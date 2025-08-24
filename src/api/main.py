@@ -96,7 +96,18 @@ async def get_entities(
         params.extend([limit, offset])
 
         cursor.execute(base_query, params)
-        entities = [dict(row) for row in cursor.fetchall()]
+        rows = cursor.fetchall()
+        
+        # Convert rows to dictionaries, handling both Row objects and tuples
+        entities = []
+        if rows:
+            # Get column names from cursor description
+            columns = [desc[0] for desc in cursor.description]
+            for row in rows:
+                if hasattr(row, 'keys'):  # sqlite3.Row object
+                    entities.append(dict(row))
+                else:  # tuple
+                    entities.append(dict(zip(columns, row)))
 
         # Get total count
         count_query = "SELECT COUNT(*) FROM entities"
