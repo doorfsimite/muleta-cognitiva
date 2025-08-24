@@ -3,76 +3,512 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Grafo Filosófico</title>
+    <title>Muleta Cognitiva - Sistema de Aprendizagem</title>
     <style>
       html,
       body {
         height: 100%;
         margin: 0;
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica,
+          Arial, sans-serif;
+        background: #f5f5f5;
       }
+
+      .app-container {
+        display: flex;
+        height: 100vh;
+      }
+
+      .sidebar {
+        width: 300px;
+        background: white;
+        border-right: 1px solid #e0e0e0;
+        padding: 20px;
+        overflow-y: auto;
+        box-shadow: 2px 0 4px rgba(0, 0, 0, 0.1);
+      }
+
+      .main-content {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+      }
+
+      .nav-tabs {
+        display: flex;
+        background: white;
+        border-bottom: 1px solid #e0e0e0;
+        padding: 0 20px;
+      }
+
+      .nav-tab {
+        padding: 15px 20px;
+        cursor: pointer;
+        border-bottom: 3px solid transparent;
+        font-weight: 500;
+        color: #666;
+        transition: all 0.2s;
+      }
+
+      .nav-tab.active {
+        color: #0066cc;
+        border-bottom-color: #0066cc;
+      }
+
+      .nav-tab:hover {
+        background: #f8f9fa;
+      }
+
+      .tab-content {
+        flex: 1;
+        padding: 20px;
+        overflow: hidden;
+      }
+
+      .tab-pane {
+        display: none;
+        height: 100%;
+      }
+
+      .tab-pane.active {
+        display: block;
+      }
+
       #chart {
         width: 100%;
         height: 100%;
-      }
-      .hint {
-        position: absolute;
-        top: 8px;
-        left: 12px;
-        font: 12px/1.4 system-ui, -apple-system, Segoe UI, Roboto, Helvetica,
-          Arial, sans-serif;
-        color: #666;
-        background: rgba(255, 255, 255, 0.85);
-        padding: 6px 8px;
-        border-radius: 6px;
-      }
-      .controls {
-        position: absolute;
-        top: 8px;
-        right: 12px;
-        font: 12px/1.4 system-ui, -apple-system, Segoe UI, Roboto, Helvetica,
-          Arial, sans-serif;
-        background: rgba(255, 255, 255, 0.9);
-        padding: 8px 12px;
-        border-radius: 6px;
+        background: white;
+        border-radius: 8px;
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
       }
+
+      .learning-dashboard {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        grid-template-rows: auto 1fr;
+        gap: 20px;
+        height: 100%;
+      }
+
+      .stats-grid {
+        grid-column: 1 / -1;
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 15px;
+      }
+
+      .stat-card {
+        background: white;
+        padding: 20px;
+        border-radius: 8px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        text-align: center;
+      }
+
+      .stat-number {
+        font-size: 32px;
+        font-weight: bold;
+        color: #0066cc;
+        margin-bottom: 5px;
+      }
+
+      .stat-label {
+        color: #666;
+        font-size: 14px;
+      }
+
+      .chart-container {
+        background: white;
+        border-radius: 8px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        padding: 15px;
+      }
+
+      .chart-title {
+        font-size: 16px;
+        font-weight: 600;
+        margin-bottom: 15px;
+        color: #333;
+      }
+
+      .controls {
+        background: white;
+        padding: 20px;
+        border-radius: 8px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        margin-bottom: 20px;
+      }
+
+      .controls h3 {
+        margin: 0 0 15px 0;
+        color: #333;
+        font-size: 16px;
+      }
+
       .controls label {
         display: block;
-        margin-bottom: 4px;
+        margin-bottom: 8px;
+        font-weight: 500;
+        color: #555;
+        font-size: 14px;
+      }
+
+      .controls select,
+      .controls input {
+        width: 100%;
+        padding: 8px 12px;
+        border: 1px solid #ddd;
+        border-radius: 6px;
+        font-size: 14px;
+        background: white;
+        margin-bottom: 15px;
+      }
+
+      .controls button {
+        width: 100%;
+        padding: 10px;
+        background: #0066cc;
+        color: white;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        font-weight: 500;
+        margin-bottom: 10px;
+        transition: background 0.2s;
+      }
+
+      .controls button:hover {
+        background: #0052a3;
+      }
+
+      .controls button.secondary {
+        background: #6c757d;
+      }
+
+      .controls button.secondary:hover {
+        background: #545b62;
+      }
+
+      .status-indicator {
+        display: inline-block;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        margin-right: 8px;
+      }
+
+      .status-indicator.connected {
+        background: #28a745;
+      }
+
+      .status-indicator.disconnected {
+        background: #dc3545;
+      }
+
+      .entity-list {
+        max-height: 300px;
+        overflow-y: auto;
+        border: 1px solid #e0e0e0;
+        border-radius: 6px;
+      }
+
+      .entity-item {
+        padding: 10px;
+        border-bottom: 1px solid #f0f0f0;
+        cursor: pointer;
+        transition: background 0.2s;
+      }
+
+      .entity-item:hover {
+        background: #f8f9fa;
+      }
+
+      .entity-item:last-child {
+        border-bottom: none;
+      }
+
+      .entity-name {
         font-weight: 500;
         color: #333;
       }
-      .controls select {
-        padding: 4px 8px;
-        border: 1px solid #ddd;
-        border-radius: 4px;
+
+      .entity-type {
         font-size: 12px;
-        background: white;
-        cursor: pointer;
+        color: #666;
+        margin-top: 2px;
+      }
+
+      .loading {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 200px;
+        color: #666;
+        font-size: 14px;
+      }
+
+      .error {
+        color: #dc3545;
+        background: #f8d7da;
+        padding: 10px;
+        border-radius: 6px;
+        margin: 10px 0;
+      }
+
+      @media (max-width: 768px) {
+        .app-container {
+          flex-direction: column;
+        }
+
+        .sidebar {
+          width: 100%;
+          height: auto;
+          max-height: 200px;
+        }
+
+        .learning-dashboard {
+          grid-template-columns: 1fr;
+        }
+
+        .stats-grid {
+          grid-template-columns: repeat(2, 1fr);
+        }
       }
     </style>
     <!-- ECharts (Apache) via CDN -->
     <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
   </head>
   <body>
-    <div id="chart"></div>
-    <div class="hint">
-      Arraste para mover, role para zoom. Carregando dados de "memory"…
-    </div>
-    <div class="controls">
-      <label for="graphType">Tipo de Visualização:</label>
-      <select id="graphType" onchange="changeGraphType()">
-        <option value="force">Grafo de Força (Force-directed)</option>
-        <option value="circular">Grafo Circular</option>
-        <option value="sankey">Sankey (Fluxo de Relações)</option>
-      </select>
+    <div class="app-container">
+      <!-- Sidebar -->
+      <div class="sidebar">
+        <h2 style="margin-top: 0; color: #333">
+          <span class="status-indicator" id="apiStatus"></span>
+          Muleta Cognitiva
+        </h2>
+
+        <div class="controls">
+          <h3>Visualização</h3>
+
+          <label for="graphType">Tipo de Grafo:</label>
+          <select id="graphType" onchange="changeGraphType()">
+            <option value="force">Grafo de Força</option>
+            <option value="circular">Grafo Circular</option>
+            <option value="sankey">Sankey Flow</option>
+            <option value="flowchart">Fluxograma Argumentativo</option>
+          </select>
+
+          <label for="categoryFilter">Filtrar por Categoria:</label>
+          <select id="categoryFilter" onchange="applyFilters()">
+            <option value="">Todas as categorias</option>
+          </select>
+
+          <button onclick="refreshData()">Atualizar Dados</button>
+          <button class="secondary" onclick="exportView()">
+            Exportar Visualização
+          </button>
+        </div>
+
+        <div class="controls">
+          <h3>Sistema de Cards</h3>
+          <div id="cardStats" class="loading">Carregando...</div>
+          <button onclick="generateCards()">Gerar Novos Cards</button>
+          <button class="secondary" onclick="showDueCards()">
+            Cards Pendentes
+          </button>
+          <button class="secondary" onclick="exportAnki()">
+            Exportar para Anki
+          </button>
+        </div>
+
+        <div class="controls">
+          <h3>Entidades</h3>
+          <input
+            type="text"
+            id="entitySearch"
+            placeholder="Buscar entidade..."
+            onkeyup="filterEntities()"
+          />
+          <div id="entityList" class="entity-list loading">
+            Carregando entidades...
+          </div>
+        </div>
+      </div>
+
+      <!-- Main Content -->
+      <div class="main-content">
+        <!-- Navigation Tabs -->
+        <div class="nav-tabs">
+          <div class="nav-tab active" onclick="showTab('knowledge-graph')">
+            Grafo de Conhecimento
+          </div>
+          <div class="nav-tab" onclick="showTab('learning-dashboard')">
+            Dashboard de Aprendizagem
+          </div>
+          <div class="nav-tab" onclick="showTab('argument-flows')">
+            Fluxogramas Argumentativos
+          </div>
+          <div class="nav-tab" onclick="showTab('assessments')">Avaliações</div>
+        </div>
+
+        <!-- Tab Content -->
+        <div class="tab-content">
+          <!-- Knowledge Graph Tab -->
+          <div id="knowledge-graph" class="tab-pane active">
+            <div id="chart"></div>
+          </div>
+
+          <!-- Learning Dashboard Tab -->
+          <div id="learning-dashboard" class="tab-pane">
+            <div class="learning-dashboard">
+              <div class="stats-grid">
+                <div class="stat-card">
+                  <div class="stat-number" id="totalEntities">-</div>
+                  <div class="stat-label">Entidades</div>
+                </div>
+                <div class="stat-card">
+                  <div class="stat-number" id="totalCards">-</div>
+                  <div class="stat-label">Cards Criados</div>
+                </div>
+                <div class="stat-card">
+                  <div class="stat-number" id="dueCards">-</div>
+                  <div class="stat-label">Cards Pendentes</div>
+                </div>
+                <div class="stat-card">
+                  <div class="stat-number" id="successRate">-</div>
+                  <div class="stat-label">Taxa de Sucesso</div>
+                </div>
+              </div>
+
+              <div class="chart-container">
+                <div class="chart-title">Progresso de Revisão</div>
+                <div id="reviewChart" style="height: 300px"></div>
+              </div>
+
+              <div class="chart-container">
+                <div class="chart-title">Distribuição de Cards por Tipo</div>
+                <div id="cardTypeChart" style="height: 300px"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Argument Flows Tab -->
+          <div id="argument-flows" class="tab-pane">
+            <div style="display: flex; gap: 20px; height: 100%">
+              <div style="flex: 1">
+                <div class="chart-title">Sequências Argumentativas</div>
+                <div
+                  id="argumentChart"
+                  style="
+                    height: calc(100% - 30px);
+                    background: white;
+                    border-radius: 8px;
+                    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+                  "
+                ></div>
+              </div>
+              <div style="width: 250px">
+                <div class="controls" style="margin: 0">
+                  <h3>Criar Sequência</h3>
+                  <label for="sequenceTitle">Título:</label>
+                  <input
+                    type="text"
+                    id="sequenceTitle"
+                    placeholder="Nome da sequência"
+                  />
+
+                  <label>Entidades Relacionadas:</label>
+                  <div
+                    id="selectedEntities"
+                    style="
+                      max-height: 150px;
+                      overflow-y: auto;
+                      border: 1px solid #e0e0e0;
+                      border-radius: 6px;
+                      padding: 10px;
+                      margin-bottom: 15px;
+                    "
+                  >
+                    <em style="color: #666">Selecione entidades do grafo</em>
+                  </div>
+
+                  <button onclick="createArgumentSequence()">
+                    Criar Sequência
+                  </button>
+                  <button class="secondary" onclick="loadArgumentSequences()">
+                    Listar Sequências
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Assessments Tab -->
+          <div id="assessments" class="tab-pane">
+            <div
+              style="
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 20px;
+                height: 100%;
+              "
+            >
+              <div class="chart-container">
+                <div class="chart-title">Histórico de Avaliações</div>
+                <div
+                  id="assessmentChart"
+                  style="height: calc(100% - 50px)"
+                ></div>
+              </div>
+
+              <div class="chart-container">
+                <div class="chart-title">Análise de Gaps de Conhecimento</div>
+                <div
+                  id="knowledgeGapChart"
+                  style="height: calc(100% - 50px)"
+                ></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
     <script>
-      const el = document.getElementById('chart')
-      const chart = echarts.init(el, null, { renderer: 'canvas' })
+      // Global state management
+      const state = {
+        apiBaseUrl: 'http://localhost:8000/api',
+        currentData: null,
+        selectedEntities: new Set(),
+        currentTab: 'knowledge-graph',
+        charts: {}
+      }
 
-      let currentData = null // Armazena os dados carregados
+      // Initialize charts
+      const mainChart = echarts.init(document.getElementById('chart'))
+      const reviewChart = echarts.init(document.getElementById('reviewChart'))
+      const cardTypeChart = echarts.init(
+        document.getElementById('cardTypeChart')
+      )
+      const argumentChart = echarts.init(
+        document.getElementById('argumentChart')
+      )
+      const assessmentChart = echarts.init(
+        document.getElementById('assessmentChart')
+      )
+      const knowledgeGapChart = echarts.init(
+        document.getElementById('knowledgeGapChart')
+      )
 
+      state.charts = {
+        main: mainChart,
+        review: reviewChart,
+        cardType: cardTypeChart,
+        argument: argumentChart,
+        assessment: assessmentChart,
+        knowledgeGap: knowledgeGapChart
+      }
+
+      // Utility functions
       function escapeHtml(s) {
         return String(s)
           .replaceAll('&', '&amp;')
@@ -82,65 +518,92 @@
           .replaceAll("'", '&#39;')
       }
 
-      async function loadData() {
-        const res = await fetch('./memory')
-        if (!res.ok) throw new Error('Falha ao carregar arquivo "memory"')
-        const text = await res.text()
-        const lines = text
-          .split(/\r?\n/)
-          .map((l) => l.trim())
-          .filter(Boolean)
-
-        const items = []
-        for (const l of lines) {
-          try {
-            items.push(JSON.parse(l))
-          } catch (e) {
-            console.warn('Linha inválida ignorada:', l)
-          }
-        }
-
-        const entities = items.filter((x) => x.type === 'entity')
-        const relations = items.filter((x) => x.type === 'relation')
-
-        const categoryIndex = new Map()
-        const categories = []
-        function ensureCategory(name) {
-          if (!categoryIndex.has(name)) {
-            categoryIndex.set(name, categories.length)
-            categories.push({ name })
-          }
-          return categoryIndex.get(name)
-        }
-
-        const nodes = entities.map((ent) => {
-          const catIdx = ensureCategory(ent.entityType || 'sem categoria')
-          return {
-            name: ent.name,
-            entityType: ent.entityType,
-            category: catIdx,
-            value: (ent.observations && ent.observations.length) || 1,
-            observations: ent.observations || [],
-            label: { show: true }
-          }
-        })
-
-        const nodeByName = new Map(nodes.map((n) => [n.name, n]))
-
-        const links = relations
-          .map((r) => ({
-            source: r.from,
-            target: r.to,
-            relationType: r.relationType,
-            from: r.from,
-            to: r.to,
-            lineStyle: { curveness: 0.1 }
-          }))
-          .filter((l) => nodeByName.has(l.source) && nodeByName.has(l.target))
-
-        return { nodes, links, categories, entities, relations }
+      function formatDate(dateString) {
+        if (!dateString) return 'N/A'
+        return new Date(dateString).toLocaleDateString('pt-BR')
       }
 
+      function setApiStatus(connected) {
+        const indicator = document.getElementById('apiStatus')
+        indicator.className = `status-indicator ${
+          connected ? 'connected' : 'disconnected'
+        }`
+      }
+
+      function showError(message) {
+        console.error('Error:', message)
+        // Could implement toast notifications here
+      }
+
+      function showLoading(elementId, show = true) {
+        const element = document.getElementById(elementId)
+        if (show) {
+          element.innerHTML = '<div class="loading">Carregando...</div>'
+        }
+      }
+
+      // API communication
+      async function apiCall(endpoint, options = {}) {
+        try {
+          const response = await fetch(`${state.apiBaseUrl}${endpoint}`, {
+            headers: {
+              'Content-Type': 'application/json',
+              ...options.headers
+            },
+            ...options
+          })
+
+          if (!response.ok) {
+            throw new Error(
+              `API Error: ${response.status} ${response.statusText}`
+            )
+          }
+
+          setApiStatus(true)
+          return await response.json()
+        } catch (error) {
+          setApiStatus(false)
+          showError(`Erro na API: ${error.message}`)
+          throw error
+        }
+      }
+
+      // Data loading functions
+      async function loadVisualizationData() {
+        try {
+          const data = await apiCall('/visualization')
+          state.currentData = data
+          return data
+        } catch (error) {
+          showError('Erro ao carregar dados de visualização')
+          return null
+        }
+      }
+
+      async function loadStatistics() {
+        try {
+          const stats = await apiCall('/statistics')
+          updateStatistics(stats)
+          return stats
+        } catch (error) {
+          showError('Erro ao carregar estatísticas')
+          return null
+        }
+      }
+
+      async function loadEntities() {
+        try {
+          const response = await apiCall('/entities')
+          updateEntityList(response.entities || [])
+          updateCategoryFilter(response.entities || [])
+          return response.entities
+        } catch (error) {
+          showError('Erro ao carregar entidades')
+          return []
+        }
+      }
+
+      // Visualization functions
       function makeForceOption(nodes, links, categories) {
         return {
           backgroundColor: '#fff',
@@ -157,6 +620,7 @@
                         d.entityType
                       )})</span>`
                     : '')
+
                 if (Array.isArray(d.observations) && d.observations.length) {
                   return (
                     header +
@@ -234,6 +698,7 @@
                       d.entityType
                     )})</span>`
                   : '')
+
               if (Array.isArray(d.observations) && d.observations.length) {
                 return (
                   header +
@@ -284,11 +749,161 @@
         }
       }
 
+      function makeFlowchartOption(nodes, links) {
+        // Transform data for flowchart visualization
+        const flowNodes = nodes.map((node, index) => ({
+          id: node.name,
+          name: node.name,
+          value: [index * 100, Math.random() * 400],
+          symbol: 'roundRect',
+          symbolSize: [100, 60],
+          itemStyle: {
+            color:
+              node.entityType === 'premise'
+                ? '#91cc75'
+                : node.entityType === 'conclusion'
+                ? '#fac858'
+                : node.entityType === 'evidence'
+                ? '#73c0de'
+                : '#ee6666'
+          },
+          label: {
+            show: true,
+            position: 'inside',
+            fontSize: 10,
+            width: 80,
+            overflow: 'truncate'
+          }
+        }))
+
+        return {
+          backgroundColor: '#fff',
+          tooltip: {
+            trigger: 'item',
+            formatter: function (params) {
+              return `<b>${escapeHtml(
+                params.data.name
+              )}</b><br/>Tipo: ${escapeHtml(
+                params.data.entityType || 'conceito'
+              )}`
+            }
+          },
+          series: [
+            {
+              type: 'graph',
+              layout: 'none',
+              data: flowNodes,
+              links: links.map((link) => ({
+                source: link.source,
+                target: link.target,
+                lineStyle: { width: 2, curveness: 0.1 }
+              })),
+              roam: true,
+              edgeSymbol: ['none', 'arrow'],
+              edgeSymbolSize: 8,
+              emphasis: { focus: 'adjacency' }
+            }
+          ]
+        }
+      }
+
+      function makeSankeyOption(nodes, links) {
+        // Transform data for Sankey diagram
+        const sankeyNodes = nodes.map((node) => ({
+          name: node.name,
+          value: node.value || 1
+        }))
+
+        const sankeyLinks = links.map((link) => ({
+          source: link.source,
+          target: link.target,
+          value: 1
+        }))
+
+        return {
+          backgroundColor: '#fff',
+          tooltip: { trigger: 'item' },
+          series: [
+            {
+              type: 'sankey',
+              data: sankeyNodes,
+              links: sankeyLinks,
+              focusNodeAdjacency: 'allEdges',
+              itemStyle: { borderWidth: 1, borderColor: '#aaa' },
+              lineStyle: { color: 'source', curveness: 0.5 }
+            }
+          ]
+        }
+      }
+
+      // Learning analytics functions
+      function updateStatistics(stats) {
+        document.getElementById('totalEntities').textContent =
+          stats.entities_count || 0
+        document.getElementById('totalCards').textContent =
+          stats.total_cards || 0
+        document.getElementById('dueCards').textContent = stats.cards_due || 0
+        document.getElementById('successRate').textContent =
+          stats.avg_success_rate
+            ? `${Math.round(stats.avg_success_rate * 100)}%`
+            : '0%'
+      }
+
+      function updateCardStats() {
+        // This would load card statistics from API
+        document.getElementById('cardStats').innerHTML = `
+          <div style="font-size: 12px; color: #666;">
+            <div>Cards pendentes: <strong>5</strong></div>
+            <div>Próxima revisão: <strong>Hoje</strong></div>
+            <div>Taxa de acerto: <strong>85%</strong></div>
+          </div>
+        `
+      }
+
+      function updateEntityList(entities) {
+        const listElement = document.getElementById('entityList')
+        if (!entities.length) {
+          listElement.innerHTML =
+            '<div style="padding: 10px; color: #666; font-style: italic;">Nenhuma entidade encontrada</div>'
+          return
+        }
+
+        listElement.innerHTML = entities
+          .map(
+            (entity) => `
+          <div class="entity-item" onclick="selectEntity('${entity.name}')">
+            <div class="entity-name">${escapeHtml(entity.name)}</div>
+            <div class="entity-type">${escapeHtml(
+              entity.entity_type || 'sem categoria'
+            )}</div>
+          </div>
+        `
+          )
+          .join('')
+      }
+
+      function updateCategoryFilter(entities) {
+        const filterElement = document.getElementById('categoryFilter')
+        const categories = [
+          ...new Set(entities.map((e) => e.entity_type).filter(Boolean))
+        ]
+
+        filterElement.innerHTML =
+          '<option value="">Todas as categorias</option>' +
+          categories
+            .map(
+              (cat) =>
+                `<option value="${escapeHtml(cat)}">${escapeHtml(cat)}</option>`
+            )
+            .join('')
+      }
+
+      // Interactive functions
       function changeGraphType() {
-        if (!currentData) return
+        if (!state.currentData) return
 
         const type = document.getElementById('graphType').value
-        const { nodes, links, categories } = currentData
+        const { nodes, links, categories } = state.currentData
 
         let option
         switch (type) {
@@ -301,34 +916,326 @@
           case 'sankey':
             option = makeSankeyOption(nodes, links)
             break
+          case 'flowchart':
+            option = makeFlowchartOption(nodes, links)
+            break
           default:
             option = makeForceOption(nodes, links, categories)
         }
 
-        chart.setOption(option, true)
+        state.charts.main.setOption(option, true)
       }
 
-      ;(async function init() {
-        try {
-          currentData = await loadData()
-          const { nodes, links, categories } = currentData
-          chart.setOption(makeForceOption(nodes, links, categories))
-          window.addEventListener('resize', () => chart.resize())
-          document.querySelector('.hint').textContent =
-            'Arraste para mover, role para zoom.'
-        } catch (err) {
-          console.error(err)
-          chart.setOption({
-            title: {
-              text: 'Erro ao carregar dados',
-              left: 'center',
-              top: 'middle'
-            }
-          })
-          document.querySelector('.hint').textContent =
-            'Erro ao carregar "memory". Sirva este diretório via um servidor local.'
+      function showTab(tabName) {
+        // Update active tab
+        document
+          .querySelectorAll('.nav-tab')
+          .forEach((tab) => tab.classList.remove('active'))
+        document
+          .querySelector(`[onclick="showTab('${tabName}')"]`)
+          .classList.add('active')
+
+        // Update active pane
+        document
+          .querySelectorAll('.tab-pane')
+          .forEach((pane) => pane.classList.remove('active'))
+        document.getElementById(tabName).classList.add('active')
+
+        state.currentTab = tabName
+
+        // Resize charts when tab becomes visible
+        setTimeout(() => {
+          Object.values(state.charts).forEach((chart) => chart.resize())
+        }, 100)
+
+        // Load tab-specific data
+        if (tabName === 'learning-dashboard') {
+          loadLearningDashboard()
+        } else if (tabName === 'argument-flows') {
+          loadArgumentFlows()
+        } else if (tabName === 'assessments') {
+          loadAssessments()
         }
-      })()
+      }
+
+      function selectEntity(entityName) {
+        if (state.selectedEntities.has(entityName)) {
+          state.selectedEntities.delete(entityName)
+        } else {
+          state.selectedEntities.add(entityName)
+        }
+        updateSelectedEntitiesDisplay()
+      }
+
+      function updateSelectedEntitiesDisplay() {
+        const container = document.getElementById('selectedEntities')
+        if (state.selectedEntities.size === 0) {
+          container.innerHTML =
+            '<em style="color: #666;">Selecione entidades do grafo</em>'
+        } else {
+          container.innerHTML = Array.from(state.selectedEntities)
+            .map(
+              (name) =>
+                `<div style="background: #e3f2fd; padding: 4px 8px; margin: 2px 0; border-radius: 4px; font-size: 12px;">${escapeHtml(
+                  name
+                )} <span onclick="selectEntity('${name}')" style="cursor: pointer; color: #1976d2; font-weight: bold;">✕</span></div>`
+            )
+            .join('')
+        }
+      }
+
+      function filterEntities() {
+        const searchTerm = document
+          .getElementById('entitySearch')
+          .value.toLowerCase()
+        const items = document.querySelectorAll('.entity-item')
+
+        items.forEach((item) => {
+          const name = item
+            .querySelector('.entity-name')
+            .textContent.toLowerCase()
+          const type = item
+            .querySelector('.entity-type')
+            .textContent.toLowerCase()
+          const matches = name.includes(searchTerm) || type.includes(searchTerm)
+          item.style.display = matches ? 'block' : 'none'
+        })
+      }
+
+      function applyFilters() {
+        const category = document.getElementById('categoryFilter').value
+        // Implementation would filter the visualization based on selected category
+        console.log('Filtering by category:', category)
+      }
+
+      // Learning dashboard functions
+      function loadLearningDashboard() {
+        // Review progress chart
+        const reviewOption = {
+          title: { text: '', left: 'center' },
+          xAxis: {
+            type: 'category',
+            data: ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
+          },
+          yAxis: { type: 'value' },
+          series: [
+            {
+              data: [12, 8, 15, 9, 11, 7, 6],
+              type: 'line',
+              smooth: true,
+              areaStyle: { opacity: 0.3 }
+            }
+          ]
+        }
+        state.charts.review.setOption(reviewOption)
+
+        // Card type distribution
+        const cardTypeOption = {
+          title: { text: '', left: 'center' },
+          tooltip: { trigger: 'item' },
+          series: [
+            {
+              type: 'pie',
+              radius: '70%',
+              data: [
+                { value: 35, name: 'Definição' },
+                { value: 25, name: 'Socrático' },
+                { value: 20, name: 'Relação' },
+                { value: 20, name: 'Aplicação' }
+              ],
+              emphasis: {
+                itemStyle: {
+                  shadowBlur: 10,
+                  shadowOffsetX: 0,
+                  shadowColor: 'rgba(0, 0, 0, 0.5)'
+                }
+              }
+            }
+          ]
+        }
+        state.charts.cardType.setOption(cardTypeOption)
+      }
+
+      function loadArgumentFlows() {
+        // Mock argument sequence visualization
+        const argumentOption = {
+          backgroundColor: '#fff',
+          tooltip: { trigger: 'item' },
+          series: [
+            {
+              type: 'graph',
+              layout: 'none',
+              data: [
+                { name: 'Premissa 1', x: 100, y: 100, symbolSize: 80 },
+                { name: 'Premissa 2', x: 100, y: 200, symbolSize: 80 },
+                { name: 'Inferência', x: 300, y: 150, symbolSize: 80 },
+                { name: 'Conclusão', x: 500, y: 150, symbolSize: 80 }
+              ],
+              links: [
+                { source: 'Premissa 1', target: 'Inferência' },
+                { source: 'Premissa 2', target: 'Inferência' },
+                { source: 'Inferência', target: 'Conclusão' }
+              ],
+              roam: true,
+              edgeSymbol: ['none', 'arrow'],
+              edgeSymbolSize: 8,
+              itemStyle: { color: '#91cc75' },
+              lineStyle: { width: 2 }
+            }
+          ]
+        }
+        state.charts.argument.setOption(argumentOption)
+      }
+
+      function loadAssessments() {
+        // Assessment history chart
+        const assessmentOption = {
+          title: { text: '', left: 'center' },
+          xAxis: {
+            type: 'category',
+            data: ['Jan', 'Fev', 'Mar', 'Abr', 'Mai']
+          },
+          yAxis: { type: 'value', max: 100 },
+          series: [
+            {
+              data: [75, 82, 78, 85, 88],
+              type: 'bar',
+              itemStyle: { color: '#0066cc' }
+            }
+          ]
+        }
+        state.charts.assessment.setOption(assessmentOption)
+
+        // Knowledge gaps chart
+        const gapOption = {
+          title: { text: '', left: 'center' },
+          radar: {
+            indicator: [
+              { name: 'Filosofia Política', max: 100 },
+              { name: 'Epistemologia', max: 100 },
+              { name: 'Ética', max: 100 },
+              { name: 'Metafísica', max: 100 },
+              { name: 'Lógica', max: 100 }
+            ]
+          },
+          series: [
+            {
+              type: 'radar',
+              data: [
+                {
+                  value: [65, 85, 70, 55, 90],
+                  name: 'Conhecimento Atual'
+                }
+              ]
+            }
+          ]
+        }
+        state.charts.knowledgeGap.setOption(gapOption)
+      }
+
+      // Action functions
+      async function refreshData() {
+        try {
+          await Promise.all([
+            loadVisualizationData(),
+            loadStatistics(),
+            loadEntities()
+          ])
+
+          if (state.currentData) {
+            changeGraphType() // Refresh current visualization
+          }
+
+          updateCardStats()
+        } catch (error) {
+          showError('Erro ao atualizar dados')
+        }
+      }
+
+      function generateCards() {
+        if (state.selectedEntities.size === 0) {
+          alert('Selecione pelo menos uma entidade para gerar cards')
+          return
+        }
+
+        console.log(
+          'Generating cards for entities:',
+          Array.from(state.selectedEntities)
+        )
+        // Implementation would call API to generate cards
+      }
+
+      function showDueCards() {
+        console.log('Showing due cards')
+        // Implementation would show due cards modal/page
+      }
+
+      function exportAnki() {
+        console.log('Exporting to Anki')
+        // Implementation would export cards to Anki format
+      }
+
+      function exportView() {
+        const chart = state.charts.main
+        const url = chart.getDataURL({
+          type: 'png',
+          backgroundColor: '#fff'
+        })
+
+        const link = document.createElement('a')
+        link.download = 'muleta-cognitiva-graph.png'
+        link.href = url
+        link.click()
+      }
+
+      function createArgumentSequence() {
+        const title = document.getElementById('sequenceTitle').value
+        if (!title || state.selectedEntities.size === 0) {
+          alert('Informe um título e selecione entidades')
+          return
+        }
+
+        console.log(
+          'Creating argument sequence:',
+          title,
+          Array.from(state.selectedEntities)
+        )
+        // Implementation would call API to create sequence
+      }
+
+      function loadArgumentSequences() {
+        console.log('Loading argument sequences')
+        // Implementation would load existing sequences
+      }
+
+      // Initialization
+      async function init() {
+        try {
+          // Load initial data
+          await refreshData()
+
+          // Set up resize handlers
+          window.addEventListener('resize', () => {
+            Object.values(state.charts).forEach((chart) => chart.resize())
+          })
+
+          // Initialize with force layout
+          if (state.currentData) {
+            const { nodes, links, categories } = state.currentData
+            state.charts.main.setOption(
+              makeForceOption(nodes, links, categories)
+            )
+          }
+
+          console.log('Application initialized successfully')
+        } catch (error) {
+          showError('Erro na inicialização da aplicação')
+          console.error('Initialization error:', error)
+        }
+      }
+
+      // Start the application
+      init()
     </script>
   </body>
 </html>
