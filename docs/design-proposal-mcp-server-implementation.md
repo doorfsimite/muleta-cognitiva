@@ -281,12 +281,11 @@ graph TB
 
 **Step 3: Basic MCP Server Implementation**
 - Objective: Implement MCP server with core protocol handling and tool registration
-- Code/Config Changes: Create `src/grafo_filosofico/mcp_server.py`, tool definitions
+- Code/Config Changes: Create `api/mcp_server.py`, tool definitions
 - Tests: MCP protocol compliance tests, tool registration tests, basic communication tests
 - Acceptance Check: MCP server accepts connections and responds to tool discovery
 
 **Copilot sub-prompt:**
-- Context: `/Users/davisimite/Documents/grafo-filosofico`, MCP protocol, Python implementation
 - Task: Create MCP server with basic protocol handling and empty tool registration
 - Edits: Create mcp_server.py, implement MCP protocol handlers, tool registry
 - Tests: MCP connection tests, protocol compliance validation
