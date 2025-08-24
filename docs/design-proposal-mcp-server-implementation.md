@@ -293,12 +293,12 @@ graph TB
 
 **Step 4: LLM Integration and Content Processing**
 - Objective: Implement LLM client and content processing pipeline with entity extraction
-- Code/Config Changes: Create `src/grafo_filosofico/llm_client.py`, `content_processor.py`
+- Code/Config Changes: Create `src/api/llm_client.py`, `content_processor.py`
 - Tests: LLM API integration tests, content parsing tests, entity extraction validation
 - Acceptance Check: Text content processed into structured entities and relationships in database
 
 **Copilot sub-prompt:**
-- Context: `/Users/davisimite/Documents/grafo-filosofico`, OpenAI API integration, entity extraction
+- Context: `/Users/davisimite/Documents/muleta-cognitiva`, OpenAI API integration, entity extraction
 - Task: Implement LLM client and content processor for automatic entity/relationship extraction
 - Edits: Create llm_client.py, content_processor.py, environment variable handling
 - Tests: LLM API tests, content processing validation, database integration tests
@@ -308,12 +308,12 @@ graph TB
 
 **Step 5: FastAPI Server and Database Integration**
 - Objective: Create simple REST API for web visualization and data access
-- Code/Config Changes: Create `src/grafo_filosofico/api.py`, endpoint definitions
+- Code/Config Changes: Create `src/api/api.py`, endpoint definitions
 - Tests: API endpoint tests, database query tests, JSON response validation
 - Acceptance Check: API serves visualization data and basic CRUD operations work
 
 **Copilot sub-prompt:**
-- Context: `/Users/davisimite/Documents/grafo-filosofico`, FastAPI, SQLite integration
+- Context: `/Users/davisimite/Documents/muleta-cognitiva`, FastAPI, SQLite integration
 - Task: Create REST API with endpoints for entities, relations, visualization data
 - Edits: Create api.py with FastAPI app, define routes, database integration
 - Tests: API endpoint tests, response validation, database query tests
@@ -326,7 +326,7 @@ graph TB
 - Acceptance Check: Web visualization displays knowledge graph, argument flowcharts, and learning statistics
 
 **Copilot sub-prompt:**
-- Context: `/Users/davisimite/Documents/grafo-filosofico`, existing index.html, ECharts integration, learning features
+- Context: `/Users/davisimite/Documents/muleta-cognitiva`, existing index.html, ECharts integration, learning features
 - Task: Enhance web visualization with argument flowcharts, card statistics, and assessment analytics
 - Edits: Modify index.html to add flowchart views, learning dashboard, assessment results visualization
 - Tests: Browser loading tests, flowchart rendering validation, learning metrics display
@@ -336,12 +336,12 @@ graph TB
 
 **Step 7: Sistema de Revisão Espaçada Completo**
 - Objective: Implement comprehensive spaced repetition system with Socratic questions integration
-- Code/Config Changes: Create `src/grafo_filosofico/spaced_repetition.py`, `card_generator.py`, `socratic_questions.py`
+- Code/Config Changes: Create `src/api/spaced_repetition.py`, `card_generator.py`, `socratic_questions.py`
 - Tests: Algorithm correctness tests, card generation tests, interval calculation validation, Socratic question quality tests
 - Acceptance Check: System generates multiple card types with appropriate review intervals and integrates Socratic questions
 
 **Copilot sub-prompt:**
-- Context: `/Users/davisimite/Documents/grafo-filosofico`, spaced repetition, Ebbinghaus curve, Socratic questioning
+- Context: `/Users/davisimite/Documents/muleta-cognitiva`, spaced repetition, Ebbinghaus curve, Socratic questioning
 - Task: Implement complete spaced repetition system with multiple card types and integrated Socratic questions
 - Edits: Create spaced_repetition.py, card_generator.py, socratic_questions.py, database tables for cards and reviews
 - Tests: Algorithm tests, card generation validation, review scheduling tests, Socratic question integration
@@ -354,7 +354,7 @@ graph TB
 - Acceptance Check: System generates ECharts flowcharts, comprehensive assessments, and identifies knowledge gaps
 
 **Copilot sub-prompt:**
-- Context: `/Users/davisimite/Documents/grafo-filosofico`, ECharts flowcharts, comprehensive assessments, knowledge analysis
+- Context: `/Users/davisimite/Documents/muleta-cognitiva`, ECharts flowcharts, comprehensive assessments, knowledge analysis
 - Task: Implement argument flowchart generation, assessment creation, knowledge gap analysis, and Anki export
 - Edits: Create argument_flowchart.py, assessment_creator.py, knowledge_analyzer.py, anki_exporter.py
 - Tests: Flowchart rendering tests, assessment generation validation, gap analysis accuracy, export format tests

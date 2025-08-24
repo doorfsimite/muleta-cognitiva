@@ -70,6 +70,12 @@ class MCPServer:
         self.host = host
         self.port = port
         self.registry = ToolRegistry()
+
+        # Initialize content processor
+        from .content_processor import ContentProcessor
+
+        self.content_processor = ContentProcessor()
+
         self._register_tools()
 
     def _register_tools(self):
@@ -307,33 +313,118 @@ class MCPServer:
     # Tool handler methods (placeholder implementations)
     async def _process_content(self, args: Dict[str, Any]) -> Dict[str, Any]:
         """Process content and extract entities."""
-        # TODO: Implement with content_processor integration
-        return {
-            "success": True,
-            "entities_created": 0,
-            "relations_created": 0,
-            "message": "Content processing not yet implemented",
-        }
+        try:
+            content = args.get("content", "")
+            source_type = args.get("source_type", "text")
+            source_path = args.get("source_path")
+
+            result = self.content_processor.process_text(
+                content, source_type, source_path
+            )
+            return result
+
+        except Exception as e:
+            logger.error(f"Content processing failed: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "entities_created": 0,
+                "relations_created": 0,
+            }
 
     async def _get_entities(self, args: Dict[str, Any]) -> Dict[str, Any]:
         """Get all entities."""
-        # TODO: Implement with database integration
-        return {"entities": []}
+        try:
+            from . import database
+
+            conn = database.get_connection(self.content_processor.db_path)
+            with conn:
+                rows = conn.execute(
+                    "SELECT id, name, entity_type, description, created_at FROM entities ORDER BY name"
+                ).fetchall()
+
+                entities = [
+                    {
+                        "id": row[0],
+                        "name": row[1],
+                        "entity_type": row[2],
+                        "description": row[3],
+                        "created_at": row[4],
+                    }
+                    for row in rows
+                ]
+
+                return {"entities": entities}
+        except Exception as e:
+            logger.error(f"Failed to get entities: {e}")
+            return {"entities": [], "error": str(e)}
 
     async def _get_entity(self, args: Dict[str, Any]) -> Dict[str, Any]:
         """Get specific entity."""
-        # TODO: Implement with database integration
-        entity_id = args.get("entity_id")
-        return {
-            "entity": {
-                "id": entity_id,
-                "name": "Placeholder",
-                "type": "concept",
-                "description": "Entity not yet implemented",
-                "observations": [],
-                "relations": [],
-            }
-        }
+        try:
+            entity_id = args.get("entity_id")
+            if not entity_id:
+                return {"error": "entity_id is required"}
+
+            from . import database
+
+            conn = database.get_connection(self.content_processor.db_path)
+            with conn:
+                # Get entity info
+                entity_row = conn.execute(
+                    "SELECT id, name, entity_type, description FROM entities WHERE id = ?",
+                    (entity_id,),
+                ).fetchone()
+
+                if not entity_row:
+                    return {"error": f"Entity with id {entity_id} not found"}
+
+                # Get observations
+                observations = conn.execute(
+                    "SELECT content, source_type, source_path FROM observations WHERE entity_id = ?",
+                    (entity_id,),
+                ).fetchall()
+
+                # Get relations (both outgoing and incoming)
+                relations = conn.execute(
+                    """SELECT r.relation_type, e.name, r.evidence, 'outgoing' as direction
+                       FROM relations r JOIN entities e ON r.to_entity_id = e.id 
+                       WHERE r.from_entity_id = ?
+                       UNION
+                       SELECT r.relation_type, e.name, r.evidence, 'incoming' as direction
+                       FROM relations r JOIN entities e ON r.from_entity_id = e.id 
+                       WHERE r.to_entity_id = ?""",
+                    (entity_id, entity_id),
+                ).fetchall()
+
+                return {
+                    "entity": {
+                        "id": entity_row[0],
+                        "name": entity_row[1],
+                        "type": entity_row[2],
+                        "description": entity_row[3],
+                        "observations": [
+                            {
+                                "content": obs[0],
+                                "source_type": obs[1],
+                                "source_path": obs[2],
+                            }
+                            for obs in observations
+                        ],
+                        "relations": [
+                            {
+                                "type": rel[0],
+                                "target": rel[1],
+                                "evidence": rel[2],
+                                "direction": rel[3],
+                            }
+                            for rel in relations
+                        ],
+                    }
+                }
+        except Exception as e:
+            logger.error(f"Failed to get entity {entity_id}: {e}")
+            return {"error": str(e)}
 
     async def _get_due_cards(self, args: Dict[str, Any]) -> Dict[str, Any]:
         """Get due cards."""
@@ -431,7 +522,16 @@ class MCPServer:
 
     async def _health_check(self, args: Dict[str, Any]) -> Dict[str, Any]:
         """Health check."""
-        return {"status": "ok", "database": "not_connected", "version": "1.0.0"}
+        try:
+            content_processor_status = self.content_processor.health_check()
+            return {
+                "status": "ok",
+                "version": "1.0.0",
+                "content_processor": content_processor_status,
+                "registered_tools": len(self.registry.tools),
+            }
+        except Exception as e:
+            return {"status": "error", "error": str(e), "version": "1.0.0"}
 
     async def handle_client(self, reader, writer):
         """Handle individual client connections."""
