@@ -1,0 +1,19 @@
+[project]
+name = "muleta-cognitiva-api"
+version = "0.1.0"
+description = "Monolithic MCP server for Muleta Cognitiva"
+authors = ["Your Name <your.email@example.com>"]
+readme = "README.md"
+requires-python = ">=3.9"
+
+[tool.poetry.dependencies]
+python = ">=3.9,<4.0"
+uvicorn = "*"
+fastapi = "*"
+
+[tool.poetry.dev-dependencies]
+pytest = "*"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"

@@ -1,3 +1,34 @@
+# Muleta Cognitiva API
+
+This project is a monolithic MCP server for Muleta Cognitiva, using FastAPI and Uvicorn.
+
+## Project Structure
+
+- `api/` - Application code and tests
+- `pyproject.toml` - Project metadata and dependencies
+
+## Setup
+
+1. Python 3.9+
+2. Install dependencies:
+   ```sh
+   pip install poetry
+   poetry install
+   ```
+
+## Testing
+
+Run tests with:
+```sh
+pytest api/
+```
+
+## Development
+
+- Main server code will go in `api/`
+- Add new dependencies to `pyproject.toml`
+
+
 # Vídeo → Texto (OCR) – macOS
 
 Script `video_to_text.sh` para converter um vídeo de páginas de livro em texto (e PDF pesquisável opcional).
