@@ -267,12 +267,11 @@ graph TB
 
 **Step 2: SQLite Database Schema and Migration**
 - Objective: Create SQLite database schema and migrate existing memory data
-- Code/Config Changes: Create `src/grafo_filosofico/database.py`, `scripts/migrate_memory.py`
+- Code/Config Changes: Create `api/database.py`, `api/scripts/migrate_memory.py`
 - Tests: Database connection tests, migration validation, schema integrity checks
 - Acceptance Check: Existing memory data successfully migrated with full data integrity
 
 **Copilot sub-prompt:**
-- Context: `/Users/davisimite/Documents/grafo-filosofico`, SQLite database, existing memory file format
 - Task: Create SQLite schema for entities/relations/observations and migration script from JSONL
 - Edits: Create database.py with schema, migrate_memory.py script, SQL DDL statements
 - Tests: Database creation tests, migration validation, data integrity checks
