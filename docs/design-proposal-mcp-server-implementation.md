@@ -313,7 +313,6 @@ graph TB
 - Acceptance Check: API serves visualization data and basic CRUD operations work
 
 **Copilot sub-prompt:**
-- Context: `/Users/davisimite/Documents/muleta-cognitiva`, FastAPI, SQLite integration
 - Task: Create REST API with endpoints for entities, relations, visualization data
 - Edits: Create api.py with FastAPI app, define routes, database integration
 - Tests: API endpoint tests, response validation, database query tests

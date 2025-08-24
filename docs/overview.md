@@ -32,6 +32,11 @@ graph TB
         COPILOT[GitHub Copilot Integration]
     end
     
+    subgraph "Development Tools"
+        CLI[GitHub Copilot CLI]
+        MCP_TOOLS[MCP Tools]
+    end
+    
     VIDEO --> MCP
     PDF --> MCP
     TEXT --> MCP
@@ -47,16 +52,19 @@ graph TB
     DB --> VIZ
     GRAPH --> REPORTS
     MCP --> COPILOT
+    COPILOT --> CLI
+    COPILOT --> MCP_TOOLS
 ```
 
 ## Features Principais
 
 ### 1. Extração e Processamento de Conteúdo
 
-**Video-to-Text OCR** (video_to_text.sh)
+**Video-to-Text OCR** ([video_to_text.sh](../video_to_text.sh))
 - Extração automática de frames de vídeos
 - OCR com Tesseract (português + inglês)
 - Detecção de cenas para otimizar extração
+- Saída estruturada em diretórios organizados
 
 **Processamento via LLM**
 - Identificação automática de entidades e conceitos
@@ -73,9 +81,10 @@ graph TB
 - Metadados: fontes, timestamps, confiabilidade
 - Arquivos: informações detalhadas sobre o tema
 
-**Visualização Interativa** (index.html)
+**Visualização Interativa** ([index.html](../index.html))
 - Grafo de força com ECharts
 - Layout circular para visão estrutural
+- Diagramas Sankey para fluxo de relações
 - Tooltips com observações completas
 - Filtros por categoria e tipo de relação
 
@@ -90,6 +99,7 @@ graph TB
 **Cards Inteligentes**
 - Perguntas geradas via LLM baseadas no contexto
 - Diferentes tipos: definição, relação, aplicação
+- Questões socráticas integradas
 
 ### 4. Gerador de Questões Socráticas
 
@@ -111,7 +121,7 @@ graph TB
 **Análise de Argumentação**
 - Identificação de premissas, inferências e conclusões
 - Mapeamento de conectores lógicos
-- Geração de diagramas Mermaid para fluxos argumentativos
+- Geração de diagramas ECharts para fluxos argumentativos
 - Detecção de falácias e gaps lógicos
 
 **Diagramas Visuais**
@@ -154,6 +164,12 @@ flowchart TD
 - **Métricas**: Import de estatísticas de performance
 - **Customização**: Templates baseados no tipo de entidade
 
+### GitHub Copilot
+- **MCP Integration**: Servidor local para contexto
+- **CLI Support**: Comandos via gh copilot
+- **Code Generation**: Assistência no desenvolvimento
+- **Documentation**: Geração automática de docs
+
 ### Plataformas de Estudo
 - **Obsidian**: Export em formato markdown linkado
 
@@ -188,14 +204,23 @@ flowchart TD
 - `learning_sessions`: sessões de estudo registradas
 - `spaced_repetition_cards`: sistema de revisão
 - `assessments`: provas e avaliações geradas
+- `argument_sequences`: fluxogramas argumentativos
+- `knowledge_gaps`: análise de lacunas
 
 ### Interface Web
 
 **Tecnologias**
 - Frontend: HTML5 + ECharts + Vanilla JS
 - Visualização: Grafos interativos força-direcionada
+- Multiple Views: Force-directed, Circular, Sankey
 - Responsive: Otimizado para desktop e tablet
 - Offline: Service worker para cache local
+
+**Funcionalidades Avançadas**
+- Alternância entre tipos de visualização
+- Análise de fluxogramas argumentativos
+- Dashboard de métricas de aprendizado
+- Interface para revisão de cards
 
 ## Workflow Típico de Uso
 
@@ -226,34 +251,69 @@ flowchart TD
 3. Sequências argumentativas são mapeadas visualmente
 4. Resumos progressivos são atualizados incrementalmente
 
+### 5. Desenvolvimento e Manutenção
+1. GitHub Copilot CLI assiste na evolução do código
+2. MCP tools fornecem contexto para desenvolvimento
+3. Documentação é mantida automaticamente
+4. Testes são sugeridos baseados no contexto
+
 ## Roadmap de Desenvolvimento
 
-### Fase 1: Foundation (MVP)
+### Fase 1: Foundation (MVP) ✅
 - Migration script dos dados atuais
 - MCP Server básico com SQLite
 - Processamento via LLM de novos conteúdos
 - Visualização web mantida e aprimorada
 
-### Fase 2: Automation
+### Fase 2: Automation (Em Progresso)
 - Sistema de revisão espaçada
 - Geração automática de questões
 - Export para Anki
 - Análise de sequências argumentativas
 
-### Fase 3: Intelligence
+### Fase 3: Intelligence (Planejado)
 - Resumos progressivos automáticos
 - Geração de avaliações customizadas
 - Métricas avançadas de aprendizado
 - Sugestões inteligentes de estudo
 
-### Fase 4: Integration
+### Fase 4: Integration (Futuro)
 - APIs REST para terceiros
 - Sync com Google Drive
 - Mobile app companion
 - Plugins para outras plataformas
 
+## Troubleshooting e Configuração
+
+### GitHub Copilot CLI
+Para resolver problemas com o GitHub Copilot CLI:
+
+1. **Verificar autenticação**:
+```bash
+gh auth status
+gh copilot auth
+```
+
+2. **Instalar/atualizar extensão**:
+```bash
+gh extension install github/gh-copilot
+gh extension upgrade gh-copilot
+```
+
+3. **Verificar status do Copilot**:
+```bash
+gh copilot status
+```
+
+### Video to Text Script
+Para otimizar o processamento de vídeos:
+- Use iluminação uniforme e evite reflexos
+- Configure `-f 1` para 1 quadro/segundo em conteúdo estático
+- Ajuste `-t 0.25` para sensibilidade de detecção de cena
+- Use `--keep-frames` durante testes para debug
+
 ## Conclusão
 
-O Grafo Filosófico representa uma abordagem moderna ao aprendizado pessoal, combinando automação inteligente via LLM com controle local via MCP Server. Ao focar em ser uma fonte rica de dados para alimentar sistemas especializados, o projeto oferece flexibilidade máxima enquanto mantém a privacidade e controle do usuário sobre seu conhecimento.
+O Muleta Cognitiva representa uma abordagem moderna ao aprendizado pessoal, combinando automação inteligente via LLM com controle local via MCP Server. Ao focar em ser uma fonte rica de dados para alimentar sistemas especializados, o projeto oferece flexibilidade máxima enquanto mantém a privacidade e controle do usuário sobre seu conhecimento.
 
 A arquitetura modular permite evolução incremental, começando com funcionalidades básicas e expandindo conforme necessidades específicas do usuário. A integração nativa com GitHub Copilot via MCP torna o desenvolvimento e manutenção mais eficientes, enquanto a natureza open-source garante transparência e possibilidade de contribuições da comunidade.
