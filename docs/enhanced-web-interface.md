@@ -83,6 +83,18 @@ The Muleta Cognitiva web interface has been enhanced with advanced visualization
 - Automatic data refresh
 - Error handling and user feedback
 
+### 7. Submissão de Texto (Processar Texto)
+
+Um novo painel na barra lateral permite enviar texto diretamente do navegador para processamento pelo endpoint `POST /api/content/process`.
+
+Recursos:
+- Campo de texto obrigatório (mín. 10, máx. 50.000 caracteres)
+- Campo de fonte (opcional), padrão: `browser:manual`
+- Botão "Processar Texto" com estado de carregamento e botão "Cancelar" (AbortController)
+- Resumo de resultados: `entities_created`, `relations_created`, `observations_created`
+- Atualização automática das estatísticas e visualizações via `refreshData()` após sucesso
+- Mensagens de erro amigáveis para validação, tempo limite, problemas de rede e erros de aplicação
+
 ## Technical Implementation
 
 ### Architecture

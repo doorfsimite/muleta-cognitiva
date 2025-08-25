@@ -287,6 +287,52 @@
           Muleta Cognitiva
         </h2>
 
+        <div class="controls" aria-labelledby="processar-texto-heading">
+          <h3 id="processar-texto-heading">Processar Texto</h3>
+
+          <label for="contentSource">Fonte (opcional):</label>
+          <input
+            id="contentSource"
+            type="text"
+            placeholder="browser:manual"
+            aria-label="Fonte do conteúdo"
+          />
+
+          <label for="contentText">Texto:</label>
+          <textarea
+            id="contentText"
+            rows="6"
+            placeholder="Cole aqui o texto para processamento"
+            aria-required="true"
+            aria-label="Texto para processamento"
+          ></textarea>
+
+          <div style="display: flex; gap: 8px; align-items: center">
+            <button
+              id="processBtn"
+              onclick="processContent()"
+              aria-label="Processar Texto"
+            >
+              Processar Texto
+            </button>
+            <button
+              class="secondary"
+              id="cancelProcessBtn"
+              onclick="cancelProcess()"
+              disabled
+              aria-label="Cancelar processamento"
+            >
+              Cancelar
+            </button>
+          </div>
+          <div
+            id="processResult"
+            style="margin-top: 8px; color: #555"
+            role="status"
+            aria-live="polite"
+          ></div>
+        </div>
+
         <div class="controls">
           <h3>Visualização</h3>
 
@@ -554,9 +600,13 @@
           })
 
           if (!response.ok) {
-            throw new Error(
-              `API Error: ${response.status} ${response.statusText}`
-            )
+            // Surface specific errors
+            let msg = `API Error: ${response.status} ${response.statusText}`
+            try {
+              const body = await response.json()
+              if (body && body.error) msg = body.error
+            } catch {}
+            throw new Error(msg)
           }
 
           setApiStatus(true)
@@ -566,6 +616,99 @@
           showError(`Erro na API: ${error.message}`)
           throw error
         }
+      }
+
+      // Text processing workflow
+      let processAbortController = null
+      const CLIENT_TIMEOUT_MS = 60000
+
+      async function processContent() {
+        const btn = document.getElementById('processBtn')
+        const cancelBtn = document.getElementById('cancelProcessBtn')
+        const resultBox = document.getElementById('processResult')
+        const source =
+          document.getElementById('contentSource').value || 'browser:manual'
+        const content = (
+          document.getElementById('contentText').value || ''
+        ).trim()
+
+        // Prevent re-submission while in progress
+        if (btn.disabled) return
+
+        // Validation
+        if (!content || content.length < 10) {
+          resultBox.textContent = 'O texto é obrigatório (mín. 10 caracteres).'
+          return
+        }
+        // if (content.length > 50000) {
+        //   resultBox.textContent =
+        //     'O texto excede o limite máximo (50.000 caracteres).'
+        //   return
+        // }
+
+        // Set loading state
+        resultBox.textContent = 'Processando...'
+        btn.disabled = true
+        cancelBtn.disabled = false
+
+        try {
+          processAbortController = new AbortController()
+
+          // Implement client-side timeout wrapper
+          const fetchPromise = apiCall('/content/process', {
+            method: 'POST',
+            body: JSON.stringify({
+              content,
+              source_type: 'text',
+              source_path: source
+            }),
+            signal: processAbortController.signal
+          })
+
+          const timeoutPromise = new Promise((_, reject) =>
+            setTimeout(
+              () => reject(new Error('Tempo de processamento excedido')),
+              CLIENT_TIMEOUT_MS
+            )
+          )
+
+          const res = await Promise.race([fetchPromise, timeoutPromise])
+
+          if (res?.success) {
+            const ec = res.entities_created ?? 0
+            const rc = res.relations_created ?? 0
+            const oc = res.observations_created ?? 0
+            const ts = new Date().toLocaleString('pt-BR')
+            resultBox.textContent = `Processamento concluído: ${ec} entidades, ${rc} relações, ${oc} observações. (${ts})`
+            await refreshData()
+          } else {
+            resultBox.textContent = `Erro: ${
+              res?.error || 'Falha no processamento.'
+            }`
+          }
+        } catch (e) {
+          if (e.name === 'AbortError') {
+            resultBox.textContent = 'Processamento cancelado.'
+          } else if (
+            (e.message || '').includes('Tempo de processamento excedido')
+          ) {
+            resultBox.textContent = 'Tempo de processamento excedido'
+          } else if (
+            (e.message || '').toLowerCase().includes('failed to fetch')
+          ) {
+            resultBox.textContent = 'Não foi possível conectar ao servidor'
+          } else {
+            resultBox.textContent = e.message || 'Erro inesperado'
+          }
+        } finally {
+          btn.disabled = false
+          cancelBtn.disabled = true
+          processAbortController = null
+        }
+      }
+
+      function cancelProcess() {
+        if (processAbortController) processAbortController.abort()
       }
 
       // Data loading functions

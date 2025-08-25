@@ -1,17 +1,21 @@
 """
 Tests for web interface functionality and API integration.
 Tests browser loading, flowchart rendering, and learning metrics display.
+Skips if Selenium is not available.
 """
 
 import pytest
 import asyncio
 import json
 from unittest.mock import Mock, patch, AsyncMock
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.chrome.options import Options
+try:
+    from selenium import webdriver
+    from selenium.webdriver.common.by import By
+    from selenium.webdriver.support.ui import WebDriverWait
+    from selenium.webdriver.support import expected_conditions as EC
+    from selenium.webdriver.chrome.options import Options
+except Exception:  # pragma: no cover
+    pytest.skip("Selenium not available", allow_module_level=True)
 import requests
 import time
 import subprocess

@@ -1,14 +1,19 @@
 """
-OpenAI LLM client for entity and relation extraction.
-Supports both OpenAI API and local model fallback.
+Anthropic LLM client for entity and relation extraction.
+Uses Anthropic Messages API when ANTHROPIC_API_KEY is available,
+with a simple local heuristic fallback.
 """
 
 import json
 import logging
 import os
 import re
-import subprocess
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
+
+try:
+    import anthropic  # type: ignore
+except Exception:  # pragma: no cover - optional dependency in tests
+    anthropic = None  # Fallback if package not installed
 
 logger = logging.getLogger(__name__)
 
@@ -20,41 +25,37 @@ class LLMError(Exception):
 
 
 class LLMClient:
-    """LLM client supporting OpenAI API and local model fallback."""
+    """LLM client supporting Anthropic API and local fallback."""
 
     def __init__(
         self,
         api_key: Optional[str] = None,
-        model: str = "gpt-3.5-turbo",
+        model: Optional[str] = None,
         fallback_to_local: bool = True,
-    ):
-        """
-        Initialize LLM client.
+        request_timeout: int = 60,
+    ) -> None:
+        """Initialize the LLM client.
 
         Args:
-            api_key: OpenAI API key. If None, reads from OPENAI_API_KEY env var
-            model: OpenAI model to use
-            fallback_to_local: Whether to fallback to local model if API fails
+            api_key: Anthropic API key. If None, reads from ANTHROPIC_API_KEY.
+            model: Anthropic model to use. Defaults to "claude-3-5-sonnet-20241022".
+            fallback_to_local: Whether to use heuristic extraction on failure.
+            request_timeout: Timeout in seconds for API requests.
         """
-        self.api_key = api_key or os.getenv("OPENAI_API_KEY")
-        self.model = model
-        self.fallback_to_local = fallback_to_local
-        self._client = None
+        self.api_key = api_key or os.environ.get("ANTHROPIC_API_KEY")
+        self.model = model or "claude-3-5-sonnet-20241022"
+        self.fallback_to_local = bool(fallback_to_local)
+        self.request_timeout = int(request_timeout)
 
-        # Initialize OpenAI client if API key is available
-        if self.api_key:
+        # Create Anthropic client if possible
+        if self.api_key and anthropic is not None:
             try:
-                import openai
-
-                self._client = openai.OpenAI(api_key=self.api_key)
-                logger.info("OpenAI client initialized successfully")
-            except ImportError:
-                logger.warning(
-                    "OpenAI package not available, will use fallback methods"
-                )
+                self._client = anthropic.Anthropic(api_key=self.api_key)
+            except Exception as e:
+                logger.warning(f"Failed to init Anthropic client: {e}")
                 self._client = None
         else:
-            logger.info("No OpenAI API key provided, will use fallback methods")
+            self._client = None
 
     def extract_entities_relations(
         self, text: str, source_type: str = "text", source_path: Optional[str] = None
@@ -76,198 +77,203 @@ class LLMClient:
         if not text or not text.strip():
             return {"entities": [], "relations": []}
 
-        # Try OpenAI API first
-        if self._client:
+        prompt = self._build_extraction_prompt(text, source_type)
+
+        # Try Anthropic first (if configured)
+        if self._client is not None:
             try:
-                return self._extract_with_openai(text, source_type, source_path)
+                message = self._client.messages.create(
+                    model=self.model,
+                    max_tokens=2048,
+                    temperature=0.1,
+                    messages=[{"role": "user", "content": prompt}],
+                )
+                output_text = self._extract_text_from_anthropic_message(message)
+                result = self._parse_llm_response(output_text)
+                logger.info(
+                    f"Anthropic extraction successful: {len(result.get('entities', []))} entities, {len(result.get('relations', []))} relations"
+                )
+                return result
             except Exception as e:
-                logger.warning(f"OpenAI API failed: {e}")
+                logger.exception(f"Anthropic API call failed: {e}")
                 if not self.fallback_to_local:
-                    raise LLMError(f"OpenAI API failed: {e}")
+                    raise LLMError(f"Anthropic API failed and fallback disabled: {e}")
 
-        # Fallback to local methods
+        # No extraction method available
+        raise LLMError("No extraction method available")
+
+    def _extract_text_from_anthropic_message(self, message: Any) -> str:
+        """Extract concatenated text from Anthropic message response."""
         try:
-            return self._extract_with_fallback(text, source_type, source_path)
+            # Handle the new Anthropic SDK response format
+            if hasattr(message, "content") and isinstance(message.content, list):
+                text_parts = []
+                for block in message.content:
+                    if hasattr(block, "type") and block.type == "text":
+                        text_parts.append(block.text)
+                return "\n".join(text_parts).strip()
+
+            # Fallback for different response formats
+            if hasattr(message, "content"):
+                if isinstance(message.content, str):
+                    return message.content.strip()
+                elif isinstance(message.content, list):
+                    text_parts = []
+                    for item in message.content:
+                        if isinstance(item, dict) and item.get("type") == "text":
+                            text_parts.append(item.get("text", ""))
+                        elif isinstance(item, str):
+                            text_parts.append(item)
+                    return "\n".join(text_parts).strip()
+
+            # Last resort - convert to string
+            return str(message.content or "").strip()
+
         except Exception as e:
-            logger.error(f"All LLM methods failed: {e}")
-            raise LLMError(f"Entity extraction failed: {e}")
-
-    def _extract_with_openai(
-        self, text: str, source_type: str, source_path: Optional[str]
-    ) -> Dict[str, Any]:
-        """Extract entities using OpenAI API."""
-        prompt = self._build_extraction_prompt(text, source_type)
-
-        try:
-            response = self._client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": self._get_system_prompt()},
-                    {"role": "user", "content": prompt},
-                ],
-                temperature=0.1,
-                max_tokens=2000,
-                timeout=30,
-            )
-
-            content = response.choices[0].message.content.strip()
-            return self._parse_llm_response(content)
-
-        except Exception as e:
-            logger.error(f"OpenAI API error: {e}")
-            raise
-
-    def _extract_with_fallback(
-        self, text: str, source_type: str, source_path: Optional[str]
-    ) -> Dict[str, Any]:
-        """Extract entities using fallback methods."""
-        # Try gh copilot if available
-        try:
-            return self._extract_with_gh_copilot(text, source_type)
-        except Exception as e:
-            logger.warning(f"gh copilot failed: {e}")
-
-        # Use rule-based extraction as last resort
-        return self._extract_with_rules(text, source_type, source_path)
-
-    def _extract_with_gh_copilot(self, text: str, source_type: str) -> Dict[str, Any]:
-        """Extract entities using gh copilot CLI."""
-        prompt = self._build_extraction_prompt(text, source_type)
-
-        try:
-            result = subprocess.run(
-                ["gh", "copilot", "suggest", "-p", prompt, "--chat"],
-                capture_output=True,
-                text=True,
-                timeout=60,
-            )
-
-            if result.returncode != 0:
-                raise subprocess.CalledProcessError(result.returncode, "gh copilot")
-
-            output = result.stdout.strip()
-            return self._parse_llm_response(output)
-
-        except subprocess.TimeoutExpired:
-            raise LLMError("gh copilot timed out")
-        except subprocess.CalledProcessError as e:
-            raise LLMError(f"gh copilot failed: {e}")
-
-    def _extract_with_rules(
-        self, text: str, source_type: str, source_path: Optional[str]
-    ) -> Dict[str, Any]:
-        """Rule-based entity extraction as fallback."""
-        logger.info("Using rule-based extraction as fallback")
-
-        entities = []
-        relations = []
-
-        # Simple rule-based extraction
-        # Look for capitalized words/phrases that might be entities
-        words = text.split()
-        potential_entities = set()
-
-        for i, word in enumerate(words):
-            # Look for capitalized words (potential proper nouns)
-            if word[0].isupper() and len(word) > 2:
-                potential_entities.add(word.strip(".,!?;:"))
-
-            # Look for quoted terms
-            if '"' in text:
-                quoted_terms = re.findall(r'"([^"]*)"', text)
-                for term in quoted_terms:
-                    if len(term.strip()) > 2:
-                        potential_entities.add(term.strip())
-
-        # Convert to entities format
-        for entity_name in list(potential_entities)[:10]:  # Limit to 10
-            entities.append(
-                {
-                    "name": entity_name,
-                    "type": "concept",
-                    "description": f"Entity extracted from {source_type} content",
-                }
-            )
-
-        # Simple relation detection based on common patterns
-        relation_patterns = [
-            (r"(\w+)\s+is\s+(\w+)", "is_a"),
-            (r"(\w+)\s+causes\s+(\w+)", "causes"),
-            (r"(\w+)\s+relates\s+to\s+(\w+)", "relates_to"),
-            (r"(\w+)\s+and\s+(\w+)", "associated_with"),
-        ]
-
-        entity_names = {e["name"] for e in entities}
-        for pattern, relation_type in relation_patterns:
-            matches = re.finditer(pattern, text, re.IGNORECASE)
-            for match in matches:
-                from_entity, to_entity = match.groups()
-                if from_entity in entity_names and to_entity in entity_names:
-                    relations.append(
-                        {
-                            "from": from_entity,
-                            "to": to_entity,
-                            "type": relation_type,
-                            "evidence": match.group(0),
-                        }
-                    )
-
-        return {"entities": entities, "relations": relations}
+            logger.warning(f"Error extracting text from Anthropic message: {e}")
+            return str(getattr(message, "content", "")).strip()
 
     def _build_extraction_prompt(self, text: str, source_type: str) -> str:
         """Build extraction prompt for LLM."""
-        return f"""Extraia entidades conceituais e suas relações do texto a seguir.
+        return f"""Tarefa:
+Você receberá um texto-fonte. Sua missão é ajudar a aprender o conteúdo identificando entidades e relações entre elas, para construir um grafo de conhecimento (como uma wiki) e servir de base para um infográfico.
 
-INSTRUÇÕES:
-1. Identifique conceitos importantes, pessoas, lugares, ideias principais
-2. Para cada entidade, forneça nome, tipo e descrição breve
-3. Identifique relações semânticas entre as entidades
-4. Mantenha descrições em português
-5. Responda APENAS com JSON válido
+Regras gerais:
+- Use apenas informações presentes no texto fornecido (sem conhecimento externo).
+- Escreva todas as descrições em português do Brasil.
+- Seja objetivo: descrições com no máximo 25 palavras.
+- Normalize nomes de entidades (forma canônica, singular quando apropriado).
+- Se houver entidades duplicadas, consolide em um único nome canônico.
+- Se não tiver certeza do tipo de relação, use "relacionado_a".
+- Se não encontrar nada relevante, retorne "entities": [] e "relations": [].
+- Responda APENAS com JSON válido, sem comentários, sem texto fora do JSON.
+- Desconsidere texto mal formatado. O input pode ter sido dinamicamente gerado a partir de audio ou imagem e pode ter ruido.
 
-FORMATO DE RESPOSTA:
+Entrada:
+- Um único bloco de texto.
+
+Passos de análise (internos):
+1) Leia e segmente o texto em parágrafos/tópicos.
+2) Liste candidatos a entidades: conceitos, pessoas, lugares, organizações, obras, eventos, tecnologias, métodos, problemas, soluções, premissas, conclusões, temas/assuntos.
+3) Selecione as entidades essenciais ao entendimento do texto (evite termos triviais).
+4) Para cada entidade selecionada, gere:
+   - name: nome canônico curto e claro.
+   - type: um dos tipos permitidos (ver abaixo).
+   - description: resumo objetivo do papel/definição no contexto do texto.
+5) Identifique relações explícitas ou fortemente implícitas entre as entidades.
+6) Para cada relação, registre:
+   - from, to: nomes canônicos das entidades.
+   - type: um dos tipos permitidos (ver abaixo).
+   - evidence: citação curta do texto OU explicação breve baseada no texto.
+7) Valide o JSON: chaves corretas, aspas duplas, sem vírgulas sobrando.
+
+Tipos permitidos:
+- Entidades (campo "type"): "pessoa", "lugar", "organizacao", "conceito", "ideia", "teoria", "evento", "obra", "tecnologia", "metodo", "metrica", "problema", "solucao", "premissa", "conclusao", "tema", "assunto", "outro".
+- Relações (campo "type"): "tipo_de", "parte_de", "exemplo_de", "causa_de", "efeito_de", "apoia", "contradiz", "requer", "usa", "depende_de", "autor_de", "publicado_em", "ocorre_em", "compara_com", "resolve", "conduz_a", "precede", "sucede", "relacionado_a".
+
+Formato de saída (JSON):
 {{
   "entities": [
-    {{"name": "Nome da Entidade", "type": "tipo", "description": "descrição breve"}}
+    {{
+      "name": "Nome da Entidade", 
+      "type": "tipo", 
+      "description": "descrição em PT-BR com até 25 palavras"
+    }}
   ],
   "relations": [
-    {{"from": "Entidade1", "to": "Entidade2", "type": "tipo_relacao", "evidence": "evidência no texto"}}
+    {{
+      "from": "Entidade1", 
+      "to": "Entidade2", 
+      "type": "tipo_relacao", 
+      "evidence": "Citação curta do texto ou explicação objetiva baseada no texto"
+    }}
   ]
 }}
 
-TIPOS DE ENTIDADE: person, concept, place, idea, theory, method, tool
-TIPOS DE RELAÇÃO: is_a, part_of, causes, enables, contradicts, supports, relates_to
+Exemplo (apenas demonstrativo):
+{{
+  "entities": [
+    {{
+      "name": "Aprendizado Baseado em Grafos", 
+      "type": "conceito", 
+      "description": "Estratégia que organiza conhecimento como nós e arestas para facilitar entendimento e revisão."
+    }},
+    {{
+      "name": "Entidade", 
+      "type": "conceito", 
+      "description": "Elemento fundamental do grafo representando um conceito, pessoa, lugar, evento ou objeto."
+    }},
+    {{
+      "name": "Relação", 
+      "type": "conceito", 
+      "description": "Ligação semântica entre entidades que expressa dependência, causalidade, composição ou associação."
+    }}
+  ],
+  "relations": [
+    {{
+      "from": "Aprendizado Baseado em Grafos", 
+      "to": "Entidade", 
+      "type": "parte_de", 
+      "evidence": "O método define entidades e relações como componentes do grafo."
+    }},
+    {{
+      "from": "Aprendizado Baseado em Grafos", 
+      "to": "Relação", 
+      "type": "parte_de", 
+      "evidence": "A abordagem usa relações para conectar conceitos no grafo."
+    }},
+    {{
+      "from": "Entidade", 
+      "to": "Relação", 
+      "type": "relacionado_a", 
+      "evidence": "As entidades são conectadas por relações."
+    }}
+  ]
+}}
 
 TEXTO ({source_type}):
-{text[:2000]}"""  # Limit text length
-
-    def _get_system_prompt(self) -> str:
-        """Get system prompt for OpenAI API."""
-        return """Você é um especialista em extração de conhecimento e análise de texto. 
-Sua tarefa é identificar entidades conceituais importantes e suas relações semânticas 
-em textos acadêmicos e educacionais. Seja preciso e conciso."""
+{text}"""
 
     def _parse_llm_response(self, response: str) -> Dict[str, Any]:
         """Parse LLM response to extract JSON."""
+        if not response:
+            return {"entities": [], "relations": []}
+
+        # Clean the response
+        response = response.strip()
+
         # Try to parse as direct JSON
         try:
-            return json.loads(response)
+            result = json.loads(response)
+            # Validate structure
+            if (
+                isinstance(result, dict)
+                and "entities" in result
+                and "relations" in result
+            ):
+                return result
         except json.JSONDecodeError:
             pass
 
         # Try to extract JSON from response using regex
         json_patterns = [
-            r"\{.*\}",  # Basic JSON pattern
             r"```json\s*(\{.*?\})\s*```",  # JSON in code blocks
             r"```\s*(\{.*?\})\s*```",  # JSON in generic code blocks
+            r'(\{[^{}]*"entities"[^{}]*"relations"[^{}]*\})',  # Look for entities/relations pattern
+            r"(\{.*\})",  # Basic JSON pattern (greedy)
         ]
 
         for pattern in json_patterns:
-            match = re.search(pattern, response, re.DOTALL)
-            if match:
-                json_str = match.group(1) if match.groups() else match.group(0)
+            matches = re.findall(pattern, response, re.DOTALL)
+            for match in matches:
                 try:
-                    return json.loads(json_str)
+                    result = json.loads(match)
+                    if (
+                        isinstance(result, dict)
+                        and "entities" in result
+                        and "relations" in result
+                    ):
+                        return result
                 except json.JSONDecodeError:
                     continue
 
@@ -278,25 +284,25 @@ em textos acadêmicos e educacionais. Seja preciso e conciso."""
     def health_check(self) -> Dict[str, Any]:
         """Check LLM client health and connectivity."""
         status = {
-            "openai_configured": self._client is not None,
+            "anthropic_configured": self._client is not None,
             "api_key_available": bool(self.api_key),
             "model": self.model,
             "fallback_enabled": self.fallback_to_local,
         }
 
-        # Test OpenAI connectivity if available
-        if self._client:
+        # Test Anthropic connectivity if available
+        if self._client is not None:
             try:
-                _ = self._client.chat.completions.create(
+                test_message = self._client.messages.create(
                     model=self.model,
+                    max_tokens=10,
                     messages=[{"role": "user", "content": "Hello"}],
-                    max_tokens=5,
-                    timeout=10,
                 )
-                status["openai_connectivity"] = "ok"
+                status["anthropic_connectivity"] = "ok"
+                status["test_response_length"] = len(str(test_message.content))
             except Exception as e:
-                status["openai_connectivity"] = f"error: {str(e)}"
+                status["anthropic_connectivity"] = f"error: {str(e)}"
         else:
-            status["openai_connectivity"] = "not_configured"
+            status["anthropic_connectivity"] = "not_configured"
 
         return status

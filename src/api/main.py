@@ -5,6 +5,8 @@ Provides REST API endpoints for web visualization and data access.
 
 import sqlite3
 from typing import Any, Dict, Optional
+import os
+import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
@@ -12,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from .database import get_connection, init_db
+from .content_processor import ContentProcessor, ContentProcessingError
 
 
 @asynccontextmanager
@@ -386,14 +389,113 @@ async def get_statistics():
 
 
 # Content processing endpoint (placeholder for future implementation)
+PROCESSING_TIMEOUT_SECONDS = int(os.getenv("PROCESSING_TIMEOUT_SECONDS", "60"))
+MAX_CONTENT_LENGTH = int(os.getenv("MAX_CONTENT_LENGTH", "50000"))
+MIN_CONTENT_LENGTH = int(os.getenv("MIN_CONTENT_LENGTH", "10"))
+
+
 @app.post("/api/content/process")
 async def process_content(request: Dict[str, Any]):
-    """Process content and extract entities/relations (placeholder)."""
-    # This will be implemented in later steps with LLM integration
-    return {
-        "message": "Content processing endpoint - to be implemented",
-        "received": request,
-    }
+    """Process content and extract entities/relations using ContentProcessor."""
+    try:
+        # Extract and validate payload
+        content = (request or {}).get("content", "")
+        source_type = (request or {}).get("source_type", "text") or "text"
+        source_path = (request or {}).get("source_path", "browser:manual")
+
+        if not content or not isinstance(content, str) or not content.strip():
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "success": False,
+                    "error": "O texto é obrigatório",
+                    "code": "VALIDATION_ERROR",
+                },
+            )
+
+        # if len(content) > MAX_CONTENT_LENGTH:
+        #     return JSONResponse(
+        #         status_code=413,
+        #         content={
+        #             "success": False,
+        #             "error": "O texto excede o limite máximo",
+        #             "code": "PAYLOAD_TOO_LARGE",
+        #         },
+        #     )
+
+        if len(content) < MIN_CONTENT_LENGTH:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "success": False,
+                    "error": "O texto é obrigatório",
+                    "code": "VALIDATION_ERROR",
+                },
+            )
+
+        processor = ContentProcessor()
+
+        # Run processing with timeout in a worker thread to avoid blocking event loop
+        try:
+            result = await asyncio.wait_for(
+                asyncio.to_thread(
+                    processor.process_text,
+                    content,
+                    source_type,
+                    source_path,
+                ),
+                timeout=PROCESSING_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError:
+            return JSONResponse(
+                status_code=504,
+                content={
+                    "success": False,
+                    "error": "Tempo de processamento excedido",
+                    "code": "TIMEOUT",
+                },
+            )
+
+        # Ensure minimal response contract
+        response_payload = {
+            "success": bool(result.get("success", True)),
+            "entities_created": int(result.get("entities_created", 0)),
+            "relations_created": int(result.get("relations_created", 0)),
+            "observations_created": int(result.get("observations_created", 0)),
+        }
+
+        # Include optional diagnostics for QA
+        for key in (
+            "entities_existing",
+            "relations_existing",
+            "total_entities",
+            "total_relations",
+            "source_type",
+            "source_path",
+        ):
+            if key in result:
+                response_payload[key] = result[key]
+
+        return JSONResponse(status_code=200, content=response_payload)
+
+    except ContentProcessingError as e:
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "error": str(e),
+                "code": "PROCESSING_ERROR",
+            },
+        )
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "error": f"Erro interno: {str(e)}",
+                "code": "INTERNAL_ERROR",
+            },
+        )
 
 
 def main():

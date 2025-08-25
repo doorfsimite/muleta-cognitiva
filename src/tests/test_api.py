@@ -121,21 +121,66 @@ class TestEntityEndpoints:
 class TestContentProcessingEndpoint:
     """Test content processing endpoint."""
 
-    def test_process_content_placeholder(self, client):
-        """Test content processing placeholder endpoint."""
-        test_content = {
-            "content": "Teste de conteúdo",
-            "source_type": "text",
-            "source_path": "/path/to/source",
-        }
+    def test_validation_empty_content(self, client):
+        response = client.post("/api/content/process", json={"content": "   "})
+        assert response.status_code == 400
+        data = response.json()
+        assert data["success"] is False
+        assert data["code"] == "VALIDATION_ERROR"
 
-        response = client.post("/api/content/process", json=test_content)
+    def test_validation_min_length(self, client):
+        response = client.post("/api/content/process", json={"content": "short"})
+        assert response.status_code == 400
+        data = response.json()
+        assert data["code"] == "VALIDATION_ERROR"
 
+    def test_validation_max_length(self, client):
+        too_long = "a" * 60000
+        response = client.post("/api/content/process", json={"content": too_long})
+        assert response.status_code in (400, 413)
+        data = response.json()
+        assert data["success"] is False
+
+    def test_success_response_structure(self, client, monkeypatch):
+        # Patch ContentProcessor.process_text to deterministic result
+        from api import main as api_main
+
+        class DummyProcessor:
+            def process_text(self, text, source_type="text", source_path=None):
+                return {
+                    "success": True,
+                    "entities_created": 2,
+                    "relations_created": 1,
+                    "observations_created": 3,
+                    "entities_existing": 0,
+                    "relations_existing": 0,
+                }
+
+        monkeypatch.setattr(api_main, "ContentProcessor", lambda: DummyProcessor())
+
+        payload = {"content": "Texto de teste válido."}
+        response = client.post("/api/content/process", json=payload)
         assert response.status_code == 200
         data = response.json()
-        assert "message" in data
-        assert "received" in data
-        assert data["received"] == test_content
+        assert data["success"] is True
+        assert data["entities_created"] == 2
+        assert data["relations_created"] == 1
+        assert data["observations_created"] == 3
+
+    def test_processing_timeout(self, client, monkeypatch):
+        from api import main as api_main
+
+        class SlowProcessor:
+            def process_text(self, *args, **kwargs):
+                import time
+                time.sleep(2)
+                return {"success": True, "entities_created": 0, "relations_created": 0}
+
+        monkeypatch.setattr(api_main, "ContentProcessor", lambda: SlowProcessor())
+        monkeypatch.setattr(api_main, "PROCESSING_TIMEOUT_SECONDS", 0.5)
+
+        response = client.post("/api/content/process", json={"content": "conteúdo válido e suficiente"})
+        assert response.status_code in (504, 500)
 
 
 class TestDatabaseIntegration:
