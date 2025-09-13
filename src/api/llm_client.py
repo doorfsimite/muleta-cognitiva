@@ -167,10 +167,6 @@ Passos de análise (internos):
    - evidence: citação curta do texto OU explicação breve baseada no texto.
 7) Valide o JSON: chaves corretas, aspas duplas, sem vírgulas sobrando.
 
-Tipos permitidos:
-- Entidades (campo "type"): "pessoa", "lugar", "organizacao", "conceito", "ideia", "teoria", "evento", "obra", "tecnologia", "metodo", "metrica", "problema", "solucao", "premissa", "conclusao", "tema", "assunto", "outro".
-- Relações (campo "type"): "tipo_de", "parte_de", "exemplo_de", "causa_de", "efeito_de", "apoia", "contradiz", "requer", "usa", "depende_de", "autor_de", "publicado_em", "ocorre_em", "compara_com", "resolve", "conduz_a", "precede", "sucede", "relacionado_a".
-
 Formato de saída (JSON):
 {{
   "entities": [
@@ -280,6 +276,80 @@ TEXTO ({source_type}):
         # If no valid JSON found, return empty structure
         logger.warning(f"Could not parse LLM response as JSON: {response[:200]}...")
         return {"entities": [], "relations": []}
+
+    def _rule_based_extraction(self, text: str) -> Dict[str, Any]:
+        """Very simple heuristic extraction of entities and relations.
+
+        - Quoted phrases become 'conceito' entities.
+        - Capitalized words (likely proper nouns) become entities.
+        - Creates generic related relations between consecutive entities.
+        """
+        entities: List[Dict[str, str]] = []
+        relations: List[Dict[str, str]] = []
+
+        # Quoted phrases
+        quoted = re.findall(r'"([^"]+)"', text) + re.findall(r"'([^']+)'", text)
+        for q in quoted:
+            name = q.strip()
+            if name and len(name) > 2:  # Avoid single characters
+                entities.append(
+                    {
+                        "name": name,
+                        "type": "conceito",
+                        "description": f"Conceito mencionado: {name[:20]}{'...' if len(name) > 20 else ''}",
+                    }
+                )
+
+        # Capitalized words (basic heuristic, avoid sentence start common words)
+        caps = re.findall(r"\b([A-Z][a-zA-ZÀ-ÿ][\w-]*)\b", text)
+        common_words = {
+            "O",
+            "A",
+            "Os",
+            "As",
+            "Um",
+            "Uma",
+            "Este",
+            "Esta",
+            "Esse",
+            "Essa",
+            "Aquele",
+            "Aquela",
+            "Para",
+            "Por",
+            "De",
+            "Da",
+            "Do",
+            "Em",
+            "Na",
+            "No",
+        }
+        seen = set(e["name"] for e in entities)
+
+        for c in caps:
+            if c in seen or c in common_words or len(c) < 3:
+                continue
+            seen.add(c)
+            entities.append(
+                {
+                    "name": c,
+                    "type": "conceito",
+                    "description": f"Entidade identificada: {c}",
+                }
+            )
+
+        # Create simple relations between consecutive entities
+        for i in range(len(entities) - 1):
+            relations.append(
+                {
+                    "from": entities[i]["name"],
+                    "to": entities[i + 1]["name"],
+                    "type": "relacionado_a",
+                    "evidence": "Proximidade no texto",
+                }
+            )
+
+        return {"entities": entities, "relations": relations}
 
     def health_check(self) -> Dict[str, Any]:
         """Check LLM client health and connectivity."""

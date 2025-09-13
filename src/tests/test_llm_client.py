@@ -203,7 +203,7 @@ class TestLLMClientResponseParsing:
 
     def test_parse_invalid_json(self):
         """Test parsing invalid JSON response."""
-        client = LLLClient()
+        client = LLMClient()
 
         response = "This is not JSON at all"
         result = client._parse_llm_response(response)

@@ -3,18 +3,21 @@ FastAPI server for Muleta Cognitiva MCP server.
 Provides REST API endpoints for web visualization and data access.
 """
 
-import sqlite3
-from typing import Any, Dict, Optional
-import os
 import asyncio
+import logging
+import os
+import sqlite3
 from contextlib import asynccontextmanager
+from typing import Any, Dict, Optional
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from .content_processor import ContentProcessingError, ContentProcessor
 from .database import get_connection, init_db
-from .content_processor import ContentProcessor, ContentProcessingError
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -100,14 +103,14 @@ async def get_entities(
 
         cursor.execute(base_query, params)
         rows = cursor.fetchall()
-        
+
         # Convert rows to dictionaries, handling both Row objects and tuples
         entities = []
         if rows:
             # Get column names from cursor description
             columns = [desc[0] for desc in cursor.description]
             for row in rows:
-                if hasattr(row, 'keys'):  # sqlite3.Row object
+                if hasattr(row, "keys"):  # sqlite3.Row object
                     entities.append(dict(row))
                 else:  # tuple
                     entities.append(dict(zip(columns, row)))
@@ -493,6 +496,145 @@ async def process_content(request: Dict[str, Any]):
             content={
                 "success": False,
                 "error": f"Erro interno: {str(e)}",
+                "code": "INTERNAL_ERROR",
+            },
+        )
+
+
+@app.post("/api/data/insert")
+async def insert_json_data(request: Dict[str, Any]):
+    """Insert entities and relations from JSON data directly."""
+    try:
+        logger.info("Starting JSON data insertion endpoint")
+
+        # Extract and validate payload
+        data = request or {}
+        entities = data.get("entities", [])
+        relations = data.get("relations", [])
+        source_type = data.get("source_type", "manual")
+        source_path = data.get("source_path", "manual:json_insert")
+
+        logger.info(
+            f"Received data: {len(entities)} entities, {len(relations)} relations"
+        )
+
+        if not isinstance(entities, list) or not isinstance(relations, list):
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "success": False,
+                    "error": "Formato inválido: 'entities' e 'relations' devem ser arrays",
+                    "code": "VALIDATION_ERROR",
+                },
+            )
+
+        # Validate entity structure
+        for i, entity in enumerate(entities):
+            if not isinstance(entity, dict):
+                return JSONResponse(
+                    status_code=400,
+                    content={
+                        "success": False,
+                        "error": f"Entidade {i} deve ser um objeto",
+                        "code": "VALIDATION_ERROR",
+                    },
+                )
+
+            required_fields = ["name", "type", "description"]
+            for field in required_fields:
+                if field not in entity:
+                    return JSONResponse(
+                        status_code=400,
+                        content={
+                            "success": False,
+                            "error": f"Entidade {i} está faltando o campo '{field}'",
+                            "code": "VALIDATION_ERROR",
+                        },
+                    )
+
+        # Validate relation structure
+        for i, relation in enumerate(relations):
+            if not isinstance(relation, dict):
+                return JSONResponse(
+                    status_code=400,
+                    content={
+                        "success": False,
+                        "error": f"Relação {i} deve ser um objeto",
+                        "code": "VALIDATION_ERROR",
+                    },
+                )
+
+            required_fields = ["from", "to", "type", "evidence"]
+            for field in required_fields:
+                if field not in relation:
+                    return JSONResponse(
+                        status_code=400,
+                        content={
+                            "success": False,
+                            "error": f"Relação {i} está faltando o campo '{field}'",
+                            "code": "VALIDATION_ERROR",
+                        },
+                    )
+
+        logger.info("Data validation completed successfully")
+
+        # Process the data using ContentProcessor
+        logger.info("Initializing ContentProcessor")
+        processor = ContentProcessor()
+
+        # Create a mock result in the format expected by ContentProcessor
+        mock_llm_result = {"entities": entities, "relations": relations}
+
+        logger.info(
+            f"Calling _store_results with {len(entities)} entities and {len(relations)} relations"
+        )
+
+        try:
+            # Call _store_results directly without asyncio.to_thread since it's not async
+            result = processor._store_results(
+                mock_llm_result,
+                source_type,
+                source_path,
+            )
+            logger.info(f"_store_results completed successfully: {result}")
+
+        except Exception as e:
+            logger.exception(f"Error storing JSON data: {e}")
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "success": False,
+                    "error": f"Erro ao armazenar dados: {str(e)}",
+                    "code": "STORAGE_ERROR",
+                },
+            )
+
+        # Ensure minimal response contract
+        response_payload = {
+            "success": True,
+            "entities_created": result.get("entities_created", len(entities)),
+            "relations_created": result.get("relations_created", len(relations)),
+            "observations_created": result.get("observations_created", 0),
+            "source_type": source_type,
+            "source_path": source_path,
+        }
+
+        logger.info(
+            f"JSON data inserted successfully: {response_payload['entities_created']} entities, {response_payload['relations_created']} relations"
+        )
+
+        return JSONResponse(
+            status_code=200,
+            content=response_payload,
+        )
+
+    except Exception as e:
+        logger.exception(f"Unexpected error in insert_json_data: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "error": "Erro interno do servidor",
                 "code": "INTERNAL_ERROR",
             },
         )

@@ -1,6 +1,7 @@
 """
 Database schema and connection for Muleta Cognitiva MCP server.
 """
+
 import sqlite3
 from pathlib import Path
 
@@ -157,16 +158,143 @@ CREATE INDEX IF NOT EXISTS idx_argument_connections_sequence ON argument_connect
 CREATE INDEX IF NOT EXISTS idx_assessment_questions_assessment ON assessment_questions(assessment_id);
 """
 
+
 def get_connection(db_path=DB_PATH):
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     return conn
+
 
 def init_db(db_path=DB_PATH):
     conn = get_connection(db_path)
     with conn:
         conn.executescript(SCHEMA_SQL)
     conn.close()
+
+
+def add_entity(conn, name: str, entity_type: str, description: str = "") -> int:
+    """Add an entity to the database and return its ID.
+
+    Args:
+        conn: Database connection
+        name: Entity name
+        entity_type: Type of entity
+        description: Optional description
+
+    Returns:
+        Entity ID (int)
+    """
+    cursor = conn.cursor()
+
+    # Check if entity already exists
+    cursor.execute(
+        "SELECT id FROM entities WHERE name = ? AND entity_type = ?",
+        (name, entity_type),
+    )
+    existing = cursor.fetchone()
+
+    if existing:
+        # Update description if provided and current is empty
+        if description and description.strip():
+            cursor.execute(
+                "UPDATE entities SET description = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND (description IS NULL OR description = '')",
+                (description, existing[0]),
+            )
+        return existing[0]
+
+    # Insert new entity
+    cursor.execute(
+        """INSERT INTO entities (name, entity_type, description, created_at, updated_at)
+           VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)""",
+        (name, entity_type, description),
+    )
+
+    return cursor.lastrowid
+
+
+def add_observation(
+    conn,
+    entity_id: int,
+    content: str,
+    source_type: str = "text",
+    source_path: str = "unknown",
+    confidence: float = 1.0,
+) -> int:
+    """Add an observation to the database and return its ID.
+
+    Args:
+        conn: Database connection
+        entity_id: ID of the entity this observation relates to
+        content: Observation content
+        source_type: Type of source (text, pdf, video, etc.)
+        source_path: Path or identifier of source
+        confidence: Confidence score (0.0 to 1.0)
+
+    Returns:
+        Observation ID (int)
+    """
+    cursor = conn.cursor()
+
+    cursor.execute(
+        """INSERT INTO observations (entity_id, content, source_type, source_path, confidence, created_at)
+           VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)""",
+        (entity_id, content, source_type, source_path, confidence),
+    )
+
+    return cursor.lastrowid
+
+
+def add_relation(
+    conn,
+    from_entity_id: int,
+    to_entity_id: int,
+    relation_type: str,
+    evidence: str = "",
+    strength: float = 1.0,
+) -> int:
+    """Add a relation to the database and return its ID.
+
+    Args:
+        conn: Database connection
+        from_entity_id: ID of the source entity
+        to_entity_id: ID of the target entity
+        relation_type: Type of relation
+        evidence: Evidence or description of the relation
+        strength: Strength of the relation (0.0 to 1.0)
+
+    Returns:
+        Relation ID (int)
+    """
+    cursor = conn.cursor()
+
+    # Check if relation already exists
+    cursor.execute(
+        """SELECT id FROM relations 
+           WHERE from_entity_id = ? AND to_entity_id = ? AND relation_type = ?""",
+        (from_entity_id, to_entity_id, relation_type),
+    )
+    existing = cursor.fetchone()
+
+    if existing:
+        # Update evidence and strength if provided
+        if evidence and evidence.strip():
+            cursor.execute(
+                """UPDATE relations 
+                   SET evidence = ?, strength = ? 
+                   WHERE id = ?""",
+                (evidence, strength, existing[0]),
+            )
+        return existing[0]
+
+    # Insert new relation
+    cursor.execute(
+        """INSERT INTO relations (from_entity_id, to_entity_id, relation_type, evidence, strength, created_at)
+           VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)""",
+        (from_entity_id, to_entity_id, relation_type, evidence, strength),
+    )
+
+    return cursor.lastrowid
+
 
 if __name__ == "__main__":
     init_db()

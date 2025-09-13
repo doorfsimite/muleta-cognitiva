@@ -14,6 +14,10 @@ sys.path.insert(0, str(Path(__file__).parents[2] / "api"))
 from . import database
 from .llm_client import LLMClient, LLMError
 
+# Configure logging to ensure it's visible
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
 logger = logging.getLogger(__name__)
 
 
@@ -24,36 +28,30 @@ class ContentProcessingError(Exception):
 
 
 class ContentProcessor:
-    """
-    Processes text content using LLM to extract entities and relations,
-    then stores the results in the database.
-    """
+    """Processes content and extracts entities/relations using LLM."""
 
     def __init__(
-        self, db_path: Optional[str] = None, llm_client: Optional[LLMClient] = None
-    ):
-        """
-        Initialize content processor.
-
-        Args:
-            db_path: Path to SQLite database file
-            llm_client: LLM client instance (if None, creates default)
-        """
-        self.db_path = db_path or database.DB_PATH
-        self.llm = llm_client or LLMClient()
-
-        # Ensure database schema exists
+        self,
+        database_path: str = "/Users/davisimite/Documents/muleta-cognitiva/src/api/muleta.db",
+    ) -> None:
+        """Initialize content processor with database and LLM client."""
+        self.db_path = Path(database_path)
+        self.llm_client = LLMClient()
+        logger.info(f"ContentProcessor initialized with database path: {self.db_path}")
+        print(f"ContentProcessor initialized with database path: {self.db_path}")
         self._ensure_database_schema()
 
     def _ensure_database_schema(self):
         """Ensure database schema is created."""
         try:
-            conn = database.get_connection(self.db_path)
+            conn = database.get_connection(str(self.db_path))
             with conn:
                 conn.executescript(database.SCHEMA_SQL)
             logger.info("Database schema verified")
+            print("Database schema verified")
         except Exception as e:
             logger.error(f"Failed to create database schema: {e}")
+            print(f"Failed to create database schema: {e}")
             raise ContentProcessingError(f"Database schema error: {e}")
 
     def process_text(
@@ -86,7 +84,7 @@ class ContentProcessor:
         try:
             # Extract entities and relations using LLM
             logger.info(f"Processing {len(text)} characters of {source_type} content")
-            extraction_result = self.llm.extract_entities_relations(
+            extraction_result = self.llm_client.extract_entities_relations(
                 text, source_type, source_path
             )
 
@@ -100,26 +98,23 @@ class ContentProcessor:
                 raise ContentProcessingError("Invalid extraction result format")
 
             # Store in database
-            entity_counts, relation_counts, observation_counts = self._store_results(
-                entities_data, relations_data, text, source_type, source_path
+            result = self._store_results(
+                extraction_result, source_type, source_path or "unknown"
             )
 
-            result = {
-                "success": True,
-                "entities_created": entity_counts["created"],
-                "entities_existing": entity_counts["existing"],
-                "relations_created": relation_counts["created"],
-                "relations_existing": relation_counts["existing"],
-                "observations_created": observation_counts,
-                "total_entities": len(entities_data),
-                "total_relations": len(relations_data),
-                "source_type": source_type,
-                "source_path": source_path,
-            }
+            result.update(
+                {
+                    "success": True,
+                    "total_entities": len(entities_data),
+                    "total_relations": len(relations_data),
+                    "source_type": source_type,
+                    "source_path": source_path,
+                }
+            )
 
             logger.info(
-                f"Processing completed: {entity_counts['created']} entities, "
-                f"{relation_counts['created']} relations created"
+                f"Processing completed: {result.get('entities_created', 0)} entities, "
+                f"{result.get('relations_created', 0)} relations created"
             )
 
             return result
@@ -133,96 +128,236 @@ class ContentProcessor:
 
     def _store_results(
         self,
-        entities_data: List[Dict],
-        relations_data: List[Dict],
-        original_text: str,
-        source_type: str,
-        source_path: Optional[str],
-    ) -> Tuple[Dict[str, int], Dict[str, int], int]:
-        """
-        Store extraction results in database.
+        llm_result: Dict[str, Any],
+        source_type: str = "text",
+        source_path: str = "unknown",
+    ) -> Dict[str, Any]:
+        """Store LLM extraction results in database.
+
+        This method is exposed to allow direct insertion of JSON data
+        without going through the LLM extraction process.
+
+        Args:
+            llm_result: Dictionary with 'entities' and 'relations' keys
+            source_type: Type of source content
+            source_path: Path or identifier of source
 
         Returns:
-            Tuple of (entity_counts, relation_counts, observation_count)
+            Dictionary with creation counts
         """
-        conn = database.get_connection(self.db_path)
-        entity_counts = {"created": 0, "existing": 0}
-        relation_counts = {"created": 0, "existing": 0}
-        observation_count = 0
+        # Add explicit print statements for debugging
+        print("=== _store_results method called ===")
+        print(f"llm_result keys: {list(llm_result.keys()) if llm_result else 'None'}")
+        print(f"source_type: {source_type}")
+        print(f"source_path: {source_path}")
 
-        with conn:
-            # Store entities and track IDs
-            entity_ids = {}
+        logger.info("Starting to store results in the database")
+        logger.info(f"Database path: {self.db_path}")
 
-            for entity_data in entities_data:
-                entity_name = entity_data.get("name", "").strip()
-                entity_type = entity_data.get("type", "concept").strip()
-                description = entity_data.get("description", "").strip()
+        entities_created = 0
+        relations_created = 0
+        observations_created = 0
 
-                if not entity_name:
-                    continue
+        try:
+            print(f"Attempting to connect to database: {self.db_path}")
+            conn = database.get_connection(str(self.db_path))
+            logger.info("Database connection established")
+            print("Database connection established successfully")
 
+            # Process entities
+            entity_map = {}  # Map entity names to IDs
+            entities_data = llm_result.get("entities", [])
+            print(f"Processing {len(entities_data)} entities")
+
+            for i, entity_data in enumerate(entities_data):
                 try:
-                    # Try to insert new entity
-                    cursor = conn.execute(
-                        "INSERT INTO entities (name, entity_type, description) VALUES (?, ?, ?)",
-                        (entity_name, entity_type, description),
+                    entity_name = entity_data.get("name", "").strip()
+                    if not entity_name:
+                        logger.warning("Skipping entity with empty name")
+                        print(f"Skipping entity {i} with empty name")
+                        continue
+
+                    print(f"Processing entity {i}: {entity_name}")
+                    logger.info(f"Processing entity: {entity_name}")
+
+                    entity_id = database.add_entity(
+                        conn,
+                        name=entity_name,
+                        entity_type=entity_data.get("type", "conceito"),
+                        description=entity_data.get("description", ""),
                     )
-                    entity_id = cursor.lastrowid
-                    entity_ids[entity_name] = entity_id
-                    entity_counts["created"] += 1
 
-                    # Add observation linking entity to source content
-                    if description and description != entity_name:
-                        conn.execute(
-                            "INSERT INTO observations (entity_id, content, source_type, source_path) VALUES (?, ?, ?, ?)",
-                            (entity_id, description, source_type, source_path),
+                    print(f"Entity {entity_name} created/found with ID: {entity_id}")
+
+                    # Store both exact name and normalized name for matching
+                    entity_map[entity_name] = entity_id
+                    entity_map[entity_name.lower().strip()] = entity_id
+                    entities_created += 1
+
+                    # Add observation for the entity
+                    description = entity_data.get("description", "").strip()
+                    if description:
+                        obs_id = database.add_observation(
+                            conn,
+                            entity_id=entity_id,
+                            content=description,
+                            source_type=source_type,
+                            source_path=source_path,
                         )
-                        observation_count += 1
+                        observations_created += 1
+                        print(f"Added observation {obs_id} for entity: {entity_name}")
+                        logger.info(f"Added observation for entity: {entity_name}")
 
-                except database.sqlite3.IntegrityError:
-                    # Entity already exists, get its ID
-                    row = conn.execute(
-                        "SELECT id FROM entities WHERE name = ?", (entity_name,)
-                    ).fetchone()
-                    if row:
-                        entity_ids[entity_name] = row[0]
-                        entity_counts["existing"] += 1
+                except Exception as e:
+                    error_msg = f"Failed to create entity {entity_data.get('name', 'unknown')}: {e}"
+                    logger.warning(error_msg)
+                    print(f"ERROR: {error_msg}")
 
-                        # Still add observation for existing entity
-                        if description and description != entity_name:
-                            conn.execute(
-                                "INSERT INTO observations (entity_id, content, source_type, source_path) VALUES (?, ?, ?, ?)",
-                                (row[0], description, source_type, source_path),
-                            )
-                            observation_count += 1
+            print(
+                f"Entity processing complete. Entity map has {len(entity_map)} entries"
+            )
 
-            # Store relations
-            for relation_data in relations_data:
-                from_entity = relation_data.get("from", "").strip()
-                to_entity = relation_data.get("to", "").strip()
-                relation_type = relation_data.get("type", "related_to").strip()
-                evidence = relation_data.get("evidence", "").strip()
+            # Helper function to find entity ID by name (with fuzzy matching)
+            def find_entity_id(entity_name: str) -> Optional[int]:
+                if not entity_name:
+                    return None
 
-                from_id = entity_ids.get(from_entity)
-                to_id = entity_ids.get(to_entity)
+                # Try exact match first
+                if entity_name in entity_map:
+                    return entity_map[entity_name]
 
-                if from_id and to_id and from_id != to_id:
-                    try:
-                        conn.execute(
-                            "INSERT INTO relations (from_entity_id, to_entity_id, relation_type, evidence) VALUES (?, ?, ?, ?)",
-                            (from_id, to_id, relation_type, evidence),
+                # Try case-insensitive match
+                normalized_name = entity_name.lower().strip()
+                if normalized_name in entity_map:
+                    return entity_map[normalized_name]
+
+                # Try to find by similarity (simple approach)
+                for existing_name, entity_id in entity_map.items():
+                    if existing_name.lower().strip() == normalized_name:
+                        return entity_id
+
+                return None
+
+            # Helper function to create missing entity
+            def create_missing_entity(entity_name: str) -> int:
+                """Create a missing entity referenced in relations."""
+                try:
+                    print(f"Creating missing entity: {entity_name}")
+                    logger.info(f"Creating missing entity: {entity_name}")
+
+                    entity_id = database.add_entity(
+                        conn,
+                        name=entity_name,
+                        entity_type="conceito",
+                        description="Entidade criada automaticamente a partir de relação",
+                    )
+
+                    # Add to entity_map for future references
+                    entity_map[entity_name] = entity_id
+                    entity_map[entity_name.lower().strip()] = entity_id
+
+                    print(f"Created missing entity: {entity_name} with ID: {entity_id}")
+                    logger.info(f"Created missing entity: {entity_name}")
+                    return entity_id
+                except Exception as e:
+                    error_msg = f"Failed to create missing entity {entity_name}: {e}"
+                    logger.error(error_msg)
+                    print(f"ERROR: {error_msg}")
+                    raise
+
+            # Process relations
+            relations_data = llm_result.get("relations", [])
+            print(f"Processing {len(relations_data)} relations")
+
+            for i, relation_data in enumerate(relations_data):
+                try:
+                    from_entity = relation_data.get("from", "").strip()
+                    to_entity = relation_data.get("to", "").strip()
+
+                    if not from_entity or not to_entity:
+                        logger.warning("Skipping relation with empty entity names")
+                        print(f"Skipping relation {i} with empty entity names")
+                        continue
+
+                    print(f"Processing relation {i}: {from_entity} -> {to_entity}")
+                    logger.info(f"Processing relation: {from_entity} -> {to_entity}")
+
+                    # Find or create from_entity
+                    from_entity_id = find_entity_id(from_entity)
+                    if from_entity_id is None:
+                        print(f"Entity '{from_entity}' not found, creating it")
+                        logger.info(
+                            f"Creating missing entity referenced in relation: {from_entity}"
                         )
-                        relation_counts["created"] += 1
-                    except database.sqlite3.IntegrityError:
-                        relation_counts["existing"] += 1
+                        from_entity_id = create_missing_entity(from_entity)
+                        entities_created += 1
 
-        return entity_counts, relation_counts, observation_count
+                    # Find or create to_entity
+                    to_entity_id = find_entity_id(to_entity)
+                    if to_entity_id is None:
+                        print(f"Entity '{to_entity}' not found, creating it")
+                        logger.info(
+                            f"Creating missing entity referenced in relation: {to_entity}"
+                        )
+                        to_entity_id = create_missing_entity(to_entity)
+                        entities_created += 1
+
+                    # Create the relation
+                    relation_id = database.add_relation(
+                        conn,
+                        from_entity_id=from_entity_id,
+                        to_entity_id=to_entity_id,
+                        relation_type=relation_data.get("type", "relacionado_a"),
+                        evidence=relation_data.get("evidence", ""),
+                        strength=float(relation_data.get("strength", 1.0)),
+                    )
+                    relations_created += 1
+                    print(
+                        f"Created relation {relation_id}: {from_entity} -> {to_entity}"
+                    )
+                    logger.info(
+                        f"Created relation: {from_entity} -> {to_entity} of type {relation_data.get('type', 'relacionado_a')}"
+                    )
+
+                except Exception as e:
+                    error_msg = (
+                        f"Failed to create relation {from_entity} -> {to_entity}: {e}"
+                    )
+                    logger.warning(error_msg)
+                    print(f"ERROR: {error_msg}")
+
+            print("Committing database changes...")
+            conn.commit()
+            conn.close()
+            logger.info("Database changes committed successfully")
+            print("Database changes committed successfully")
+
+        except Exception as e:
+            error_msg = f"Error storing results: {e}"
+            logger.exception(error_msg)
+            print(f"FATAL ERROR: {error_msg}")
+            raise
+
+        result = {
+            "entities_created": entities_created,
+            "relations_created": relations_created,
+            "observations_created": observations_created,
+        }
+
+        print(f"=== _store_results completed ===")
+        print(f"Result: {result}")
+
+        logger.info(
+            f"Storing results completed: {entities_created} entities, "
+            f"{relations_created} relations, {observations_created} observations created"
+        )
+
+        return result
 
     def get_entity_stats(self) -> Dict[str, Any]:
         """Get statistics about entities in the database."""
         try:
-            conn = database.get_connection(self.db_path)
+            conn = database.get_connection(str(self.db_path))
             with conn:
                 # Count entities by type
                 entity_stats = conn.execute(
@@ -252,7 +387,7 @@ class ContentProcessor:
     def search_entities(self, query: str, limit: int = 10) -> List[Dict[str, Any]]:
         """Search entities by name or description."""
         try:
-            conn = database.get_connection(self.db_path)
+            conn = database.get_connection(str(self.db_path))
             with conn:
                 results = conn.execute(
                     """SELECT id, name, entity_type, description 
@@ -280,9 +415,7 @@ class ContentProcessor:
         """Check content processor health."""
         status = {
             "database_path": str(self.db_path),
-            "database_exists": self.db_path.exists()
-            if hasattr(self.db_path, "exists")
-            else True,
+            "database_exists": self.db_path.exists(),
         }
 
         # Test database connectivity
@@ -295,7 +428,7 @@ class ContentProcessor:
 
         # Check LLM health
         try:
-            llm_status = self.llm.health_check()
+            llm_status = self.llm_client.health_check()
             status["llm_status"] = llm_status
         except Exception as e:
             status["llm_status"] = f"error: {str(e)}"
