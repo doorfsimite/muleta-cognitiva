@@ -2,10 +2,12 @@
 Database schema and connection for Muleta Cognitiva MCP server.
 """
 
+import os
 import sqlite3
 from pathlib import Path
 
-DB_PATH = Path(__file__).parent / "muleta.db"
+# Allow overriding DB path via environment for tests/deployments
+DB_PATH = Path(os.environ.get("MULETA_DB_PATH", Path(__file__).parent / "muleta.db"))
 
 SCHEMA_SQL = """
 -- Entidades centrais
@@ -160,16 +162,40 @@ CREATE INDEX IF NOT EXISTS idx_assessment_questions_assessment ON assessment_que
 
 
 def get_connection(db_path=DB_PATH):
-    conn = sqlite3.connect(db_path)
+    # Create connection with sensible defaults for migrations and integrity
+    conn = sqlite3.connect(str(db_path), timeout=30)
     conn.row_factory = sqlite3.Row
+    # PRAGMAs: enforce foreign keys and use WAL for better concurrency
+    try:
+        conn.execute("PRAGMA foreign_keys = ON")
+        conn.execute("PRAGMA journal_mode = WAL")
+        conn.execute("PRAGMA synchronous = NORMAL")
+    except Exception:
+        # Some SQLite builds or paths may not support these; ignore failures
+        pass
     return conn
 
 
 def init_db(db_path=DB_PATH):
-    conn = get_connection(db_path)
-    with conn:
-        conn.executescript(SCHEMA_SQL)
-    conn.close()
+    """Initialize the database using the migration runner.
+
+    This will apply any unapplied SQL files from the top-level `migrations/`
+    folder and is safer for incremental schema evolution than blindly
+    executing the full schema script.
+    """
+    # import locally to avoid circular imports at module import time
+    try:
+        from . import migrations as migration_runner
+    except Exception:
+        # fall back to executing SCHEMA_SQL if migration runner is unavailable
+        conn = get_connection(db_path)
+        with conn:
+            conn.executescript(SCHEMA_SQL)
+        conn.close()
+        return
+
+    # Ensure migrations are applied to the chosen DB path
+    migration_runner.apply_migrations(db_path=Path(db_path))
 
 
 def add_entity(conn, name: str, entity_type: str, description: str = "") -> int:
