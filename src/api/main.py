@@ -416,15 +416,15 @@ async def process_content(request: Dict[str, Any]):
                 },
             )
 
-        # if len(content) > MAX_CONTENT_LENGTH:
-        #     return JSONResponse(
-        #         status_code=413,
-        #         content={
-        #             "success": False,
-        #             "error": "O texto excede o limite máximo",
-        #             "code": "PAYLOAD_TOO_LARGE",
-        #         },
-        #     )
+        if len(content) > MAX_CONTENT_LENGTH:
+            return JSONResponse(
+                status_code=413,
+                content={
+                    "success": False,
+                    "error": "O texto excede o limite máximo",
+                    "code": "PAYLOAD_TOO_LARGE",
+                },
+            )
 
         if len(content) < MIN_CONTENT_LENGTH:
             return JSONResponse(

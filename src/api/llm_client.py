@@ -1,19 +1,18 @@
 """
-Anthropic LLM client for entity and relation extraction.
-Uses Anthropic Messages API when ANTHROPIC_API_KEY is available,
-with a simple local heuristic fallback.
+Local LLM client for entity and relation extraction.
+Uses local LLM HTTP endpoint with fallback to rule-based extraction.
 """
 
 import json
 import logging
-import os
-import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
-try:
-    import anthropic  # type: ignore
-except Exception:  # pragma: no cover - optional dependency in tests
-    anthropic = None  # Fallback if package not installed
+import httpx
+
+from .config import LLMConfig
+from .fallback_extractor import extract_entities_relations_fallback
+from .prompts import build_extraction_prompt
+from .response_parser import parse_llm_response
 
 logger = logging.getLogger(__name__)
 
@@ -25,43 +24,20 @@ class LLMError(Exception):
 
 
 class LLMClient:
-    """LLM client supporting Anthropic API and local fallback."""
+    """Local LLM client for entity and relation extraction."""
 
-    def __init__(
-        self,
-        api_key: Optional[str] = None,
-        model: Optional[str] = None,
-        fallback_to_local: bool = True,
-        request_timeout: int = 60,
-    ) -> None:
+    def __init__(self, config: Optional[LLMConfig] = None) -> None:
         """Initialize the LLM client.
 
         Args:
-            api_key: Anthropic API key. If None, reads from ANTHROPIC_API_KEY.
-            model: Anthropic model to use. Defaults to "claude-3-5-sonnet-20241022".
-            fallback_to_local: Whether to use heuristic extraction on failure.
-            request_timeout: Timeout in seconds for API requests.
+            config: Configuration object. If None, creates default config.
         """
-        self.api_key = api_key or os.environ.get("ANTHROPIC_API_KEY")
-        self.model = model or "claude-3-5-sonnet-20241022"
-        self.fallback_to_local = bool(fallback_to_local)
-        self.request_timeout = int(request_timeout)
-
-        # Create Anthropic client if possible
-        if self.api_key and anthropic is not None:
-            try:
-                self._client = anthropic.Anthropic(api_key=self.api_key)
-            except Exception as e:
-                logger.warning(f"Failed to init Anthropic client: {e}")
-                self._client = None
-        else:
-            self._client = None
+        self.config = config or LLMConfig()
 
     def extract_entities_relations(
         self, text: str, source_type: str = "text", source_path: Optional[str] = None
     ) -> Dict[str, Any]:
-        """
-        Extract entities and relations from text using LLM.
+        """Extract entities and relations from text using local LLM.
 
         Args:
             text: Input text to process
@@ -77,302 +53,108 @@ class LLMClient:
         if not text or not text.strip():
             return {"entities": [], "relations": []}
 
-        prompt = self._build_extraction_prompt(text, source_type)
+        prompt = build_extraction_prompt(text, source_type)
 
-        # Try Anthropic first (if configured)
-        if self._client is not None:
-            try:
-                message = self._client.messages.create(
-                    model=self.model,
-                    max_tokens=2048,
-                    temperature=0.1,
-                    messages=[{"role": "user", "content": prompt}],
-                )
-                output_text = self._extract_text_from_anthropic_message(message)
-                result = self._parse_llm_response(output_text)
-                logger.info(
-                    f"Anthropic extraction successful: {len(result.get('entities', []))} entities, {len(result.get('relations', []))} relations"
-                )
-                return result
-            except Exception as e:
-                logger.exception(f"Anthropic API call failed: {e}")
-                if not self.fallback_to_local:
-                    raise LLMError(f"Anthropic API failed and fallback disabled: {e}")
-
-        # No extraction method available
-        raise LLMError("No extraction method available")
-
-    def _extract_text_from_anthropic_message(self, message: Any) -> str:
-        """Extract concatenated text from Anthropic message response."""
+        # Try local LLM first
         try:
-            # Handle the new Anthropic SDK response format
-            if hasattr(message, "content") and isinstance(message.content, list):
-                text_parts = []
-                for block in message.content:
-                    if hasattr(block, "type") and block.type == "text":
-                        text_parts.append(block.text)
-                return "\n".join(text_parts).strip()
-
-            # Fallback for different response formats
-            if hasattr(message, "content"):
-                if isinstance(message.content, str):
-                    return message.content.strip()
-                elif isinstance(message.content, list):
-                    text_parts = []
-                    for item in message.content:
-                        if isinstance(item, dict) and item.get("type") == "text":
-                            text_parts.append(item.get("text", ""))
-                        elif isinstance(item, str):
-                            text_parts.append(item)
-                    return "\n".join(text_parts).strip()
-
-            # Last resort - convert to string
-            return str(message.content or "").strip()
-
+            response = self._call_local_llm(prompt)
+            result = parse_llm_response(response)
+            logger.info(
+                f"LLM extraction successful: {len(result.get('entities', []))} entities, "
+                f"{len(result.get('relations', []))} relations"
+            )
+            return result
         except Exception as e:
-            logger.warning(f"Error extracting text from Anthropic message: {e}")
-            return str(getattr(message, "content", "")).strip()
+            logger.exception(f"Local LLM call failed: {e}")
 
-    def _build_extraction_prompt(self, text: str, source_type: str) -> str:
-        """Build extraction prompt for LLM."""
-        return f"""Tarefa:
-Você receberá um texto-fonte. Sua missão é ajudar a aprender o conteúdo identificando entidades e relações entre elas, para construir um grafo de conhecimento (como uma wiki) e servir de base para um infográfico.
+            # Use fallback if enabled
+            if self.config.fallback_enabled:
+                logger.info("Using rule-based fallback extraction")
+                return extract_entities_relations_fallback(text)
 
-Regras gerais:
-- Use apenas informações presentes no texto fornecido (sem conhecimento externo).
-- Escreva todas as descrições em português do Brasil.
-- Seja objetivo: descrições com no máximo 25 palavras.
-- Normalize nomes de entidades (forma canônica, singular quando apropriado).
-- Se houver entidades duplicadas, consolide em um único nome canônico.
-- Se não tiver certeza do tipo de relação, use "relacionado_a".
-- Se não encontrar nada relevante, retorne "entities": [] e "relations": [].
-- Responda APENAS com JSON válido, sem comentários, sem texto fora do JSON.
-- Desconsidere texto mal formatado. O input pode ter sido dinamicamente gerado a partir de audio ou imagem e pode ter ruido.
+            raise LLMError(f"Local LLM failed and fallback disabled: {e}")
 
-Entrada:
-- Um único bloco de texto.
+    def generate(self, prompt: str, model: Optional[str] = None) -> Dict[str, Any]:
+        """Call local LLM HTTP endpoint and return parsed JSON.
 
-Passos de análise (internos):
-1) Leia e segmente o texto em parágrafos/tópicos.
-2) Liste candidatos a entidades: conceitos, pessoas, lugares, organizações, obras, eventos, tecnologias, métodos, problemas, soluções, premissas, conclusões, temas/assuntos.
-3) Selecione as entidades essenciais ao entendimento do texto (evite termos triviais).
-4) Para cada entidade selecionada, gere:
-   - name: nome canônico curto e claro.
-   - type: um dos tipos permitidos (ver abaixo).
-   - description: resumo objetivo do papel/definição no contexto do texto.
-5) Identifique relações explícitas ou fortemente implícitas entre as entidades.
-6) Para cada relação, registre:
-   - from, to: nomes canônicos das entidades.
-   - type: um dos tipos permitidos (ver abaixo).
-   - evidence: citação curta do texto OU explicação breve baseada no texto.
-7) Valide o JSON: chaves corretas, aspas duplas, sem vírgulas sobrando.
+        Args:
+            prompt: Text prompt to send to LLM
+            model: Model name to use (overrides config default)
 
-Formato de saída (JSON):
-{{
-  "entities": [
-    {{
-      "name": "Nome da Entidade", 
-      "type": "tipo", 
-      "description": "descrição em PT-BR com até 25 palavras"
-    }}
-  ],
-  "relations": [
-    {{
-      "from": "Entidade1", 
-      "to": "Entidade2", 
-      "type": "tipo_relacao", 
-      "evidence": "Citação curta do texto ou explicação objetiva baseada no texto"
-    }}
-  ]
-}}
+        Returns:
+            Parsed JSON response from LLM
 
-Exemplo (apenas demonstrativo):
-{{
-  "entities": [
-    {{
-      "name": "Aprendizado Baseado em Grafos", 
-      "type": "conceito", 
-      "description": "Estratégia que organiza conhecimento como nós e arestas para facilitar entendimento e revisão."
-    }},
-    {{
-      "name": "Entidade", 
-      "type": "conceito", 
-      "description": "Elemento fundamental do grafo representando um conceito, pessoa, lugar, evento ou objeto."
-    }},
-    {{
-      "name": "Relação", 
-      "type": "conceito", 
-      "description": "Ligação semântica entre entidades que expressa dependência, causalidade, composição ou associação."
-    }}
-  ],
-  "relations": [
-    {{
-      "from": "Aprendizado Baseado em Grafos", 
-      "to": "Entidade", 
-      "type": "parte_de", 
-      "evidence": "O método define entidades e relações como componentes do grafo."
-    }},
-    {{
-      "from": "Aprendizado Baseado em Grafos", 
-      "to": "Relação", 
-      "type": "parte_de", 
-      "evidence": "A abordagem usa relações para conectar conceitos no grafo."
-    }},
-    {{
-      "from": "Entidade", 
-      "to": "Relação", 
-      "type": "relacionado_a", 
-      "evidence": "As entidades são conectadas por relações."
-    }}
-  ]
-}}
-
-TEXTO ({source_type}):
-{text}"""
-
-    def _parse_llm_response(self, response: str) -> Dict[str, Any]:
-        """Parse LLM response to extract JSON."""
-        if not response:
-            return {"entities": [], "relations": []}
-
-        # Clean the response
-        response = response.strip()
-
-        # Try to parse as direct JSON
-        try:
-            result = json.loads(response)
-            # Validate structure
-            if (
-                isinstance(result, dict)
-                and "entities" in result
-                and "relations" in result
-            ):
-                return result
-        except json.JSONDecodeError:
-            pass
-
-        # Try to extract JSON from response using regex
-        json_patterns = [
-            r"```json\s*(\{.*?\})\s*```",  # JSON in code blocks
-            r"```\s*(\{.*?\})\s*```",  # JSON in generic code blocks
-            r'(\{[^{}]*"entities"[^{}]*"relations"[^{}]*\})',  # Look for entities/relations pattern
-            r"(\{.*\})",  # Basic JSON pattern (greedy)
-        ]
-
-        for pattern in json_patterns:
-            matches = re.findall(pattern, response, re.DOTALL)
-            for match in matches:
-                try:
-                    result = json.loads(match)
-                    if (
-                        isinstance(result, dict)
-                        and "entities" in result
-                        and "relations" in result
-                    ):
-                        return result
-                except json.JSONDecodeError:
-                    continue
-
-        # If no valid JSON found, return empty structure
-        logger.warning(f"Could not parse LLM response as JSON: {response[:200]}...")
-        return {"entities": [], "relations": []}
-
-    def _rule_based_extraction(self, text: str) -> Dict[str, Any]:
-        """Very simple heuristic extraction of entities and relations.
-
-        - Quoted phrases become 'conceito' entities.
-        - Capitalized words (likely proper nouns) become entities.
-        - Creates generic related relations between consecutive entities.
+        Raises:
+            LLMError: If LLM request fails
         """
-        entities: List[Dict[str, str]] = []
-        relations: List[Dict[str, str]] = []
+        model_name = model or self.config.model
+        response = self._call_local_llm(prompt, model_name)
 
-        # Quoted phrases
-        quoted = re.findall(r'"([^"]+)"', text) + re.findall(r"'([^']+)'", text)
-        for q in quoted:
-            name = q.strip()
-            if name and len(name) > 2:  # Avoid single characters
-                entities.append(
-                    {
-                        "name": name,
-                        "type": "conceito",
-                        "description": f"Conceito mencionado: {name[:20]}{'...' if len(name) > 20 else ''}",
-                    }
-                )
+        try:
+            return json.loads(response)
+        except json.JSONDecodeError as e:
+            raise LLMError(f"LLM returned invalid JSON: {e}")
 
-        # Capitalized words (basic heuristic, avoid sentence start common words)
-        caps = re.findall(r"\b([A-Z][a-zA-ZÀ-ÿ][\w-]*)\b", text)
-        common_words = {
-            "O",
-            "A",
-            "Os",
-            "As",
-            "Um",
-            "Uma",
-            "Este",
-            "Esta",
-            "Esse",
-            "Essa",
-            "Aquele",
-            "Aquela",
-            "Para",
-            "Por",
-            "De",
-            "Da",
-            "Do",
-            "Em",
-            "Na",
-            "No",
-        }
-        seen = set(e["name"] for e in entities)
+    def _call_local_llm(self, prompt: str, model: Optional[str] = None) -> str:
+        """Make HTTP request to local LLM endpoint.
 
-        for c in caps:
-            if c in seen or c in common_words or len(c) < 3:
-                continue
-            seen.add(c)
-            entities.append(
-                {
-                    "name": c,
-                    "type": "conceito",
-                    "description": f"Entidade identificada: {c}",
-                }
-            )
+        Args:
+            prompt: Text prompt to send
+            model: Model name to use
 
-        # Create simple relations between consecutive entities
-        for i in range(len(entities) - 1):
-            relations.append(
-                {
-                    "from": entities[i]["name"],
-                    "to": entities[i + 1]["name"],
-                    "type": "relacionado_a",
-                    "evidence": "Proximidade no texto",
-                }
-            )
+        Returns:
+            Raw response text from LLM
 
-        return {"entities": entities, "relations": relations}
+        Raises:
+            LLMError: If HTTP request fails
+        """
+        model_name = model or self.config.model
+        payload = {"prompt": prompt, "model": model_name}
+
+        try:
+            with httpx.Client(timeout=self.config.timeout) as client:
+                resp = client.post(self.config.url, json=payload)
+                resp.raise_for_status()
+                data = resp.json()
+
+            # Extract response text from various possible formats
+            if isinstance(data, dict):
+                if "response" in data:
+                    return data["response"]
+                elif "text" in data:
+                    return data["text"]
+                elif "content" in data:
+                    return data["content"]
+                else:
+                    return str(data)
+            elif isinstance(data, str):
+                return data
+            else:
+                return str(data)
+
+        except httpx.HTTPError as e:
+            logger.exception("Local LLM HTTP request failed")
+            raise LLMError(f"Local LLM HTTP request failed: {e}")
 
     def health_check(self) -> Dict[str, Any]:
-        """Check LLM client health and connectivity."""
+        """Check LLM client health and connectivity.
+
+        Returns:
+            Dictionary with health status information
+        """
         status = {
-            "anthropic_configured": self._client is not None,
-            "api_key_available": bool(self.api_key),
-            "model": self.model,
-            "fallback_enabled": self.fallback_to_local,
+            "model": self.config.model,
+            "url": self.config.url,
+            "timeout": self.config.timeout,
+            "fallback_enabled": self.config.fallback_enabled,
         }
 
-        # Test Anthropic connectivity if available
-        if self._client is not None:
-            try:
-                test_message = self._client.messages.create(
-                    model=self.model,
-                    max_tokens=10,
-                    messages=[{"role": "user", "content": "Hello"}],
-                )
-                status["anthropic_connectivity"] = "ok"
-                status["test_response_length"] = len(str(test_message.content))
-            except Exception as e:
-                status["anthropic_connectivity"] = f"error: {str(e)}"
-        else:
-            status["anthropic_connectivity"] = "not_configured"
+        # Test local LLM connectivity
+        try:
+            response = self._call_local_llm("Hello", self.config.model)
+            status["connectivity"] = "ok"
+            status["test_response_length"] = len(response)
+        except Exception as e:
+            status["connectivity"] = f"error: {str(e)}"
 
         return status

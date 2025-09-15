@@ -197,10 +197,8 @@ class TestLLMClientGenerate:
     @patch("api.llm_client.httpx.Client")
     def test_generate_http_error(self, mock_httpx_client):
         """Test generate with HTTP error."""
-        import httpx
-
-        # Mock HTTP client to raise an HTTPError
-        mock_httpx_client.return_value.__enter__.side_effect = httpx.HTTPError(
+        # Mock HTTP client to raise an exception
+        mock_httpx_client.return_value.__enter__.side_effect = Exception(
             "Connection error"
         )
 

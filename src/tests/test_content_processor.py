@@ -208,3 +208,50 @@ def test_invalid_extraction_result(tmp_path):
     assert result["success"] is True
     assert result["entities_created"] == 0
     assert result["relations_created"] == 0
+
+
+def test_process_video_invokes_script_and_processes(tmp_path, monkeypatch):
+    """Mock subprocess.run to simulate video_to_text.sh creating a text file."""
+    # Setup a small DB and processor with DummyLLM that returns a simple extraction
+    db_path = tmp_path / "video_test.db"
+    conn = sqlite3.connect(db_path)
+    with conn:
+        conn.executescript(database.SCHEMA_SQL)
+    conn.close()
+
+    class MockLLM:
+        def extract_entities_relations(
+            self, text, source_type="text", source_path=None
+        ):
+            # return a single entity inferred from the text
+            return {
+                "entities": [
+                    {
+                        "name": "VideoConcept",
+                        "type": "concept",
+                        "description": "From video",
+                    }
+                ],
+                "relations": [],
+            }
+
+    processor = ContentProcessor(str(db_path), MockLLM())
+
+    # Create a fake video file
+    video_file = tmp_path / "input.mp4"
+    video_file.write_bytes(b"FAKEVIDEO")
+
+    # Monkeypatch subprocess.run to create an output text file inside the tempdir
+    def fake_run(cmd, check=True):
+        # Expect ['sh', 'video_to_text.sh', '-i', <video>, '-o', <tmpd>]
+        outdir = cmd[-1]
+        out_path = Path(outdir) / "video_output.txt"
+        out_path.write_text("This is extracted text from video.", encoding="utf-8")
+        return None
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+
+    result = processor.process_video(video_file, source="video")
+
+    assert result["entities_created"] >= 1
+    assert result["relations_created"] == 0
