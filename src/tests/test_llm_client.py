@@ -105,21 +105,6 @@ class TestLLMClientExtraction:
         assert result["relations"][0]["from"] == "Test Entity"
 
     @patch("api.llm_client.httpx.Client")
-    def test_extract_with_llm_failure_fallback_enabled(self, mock_httpx_client):
-        """Test extraction with LLM failure and fallback enabled."""
-        # Mock HTTP client to raise an exception
-        mock_httpx_client.return_value.__enter__.side_effect = Exception(
-            "Connection error"
-        )
-
-        client = LLMClient()
-        result = client.extract_entities_relations("Test text with 'quoted phrase'")
-
-        # Should fall back to rule-based extraction
-        assert "entities" in result
-        assert "relations" in result
-
-    @patch("api.llm_client.httpx.Client")
     def test_extract_with_llm_failure_fallback_disabled(self, mock_httpx_client):
         """Test extraction with LLM failure and fallback disabled."""
         # Mock HTTP client to raise an exception

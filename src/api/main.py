@@ -392,7 +392,7 @@ async def get_statistics():
 
 
 # Content processing endpoint (placeholder for future implementation)
-PROCESSING_TIMEOUT_SECONDS = int(os.getenv("PROCESSING_TIMEOUT_SECONDS", "60"))
+PROCESSING_TIMEOUT_SECONDS = int(os.getenv("PROCESSING_TIMEOUT_SECONDS", "600"))
 MAX_CONTENT_LENGTH = int(os.getenv("MAX_CONTENT_LENGTH", "50000"))
 MIN_CONTENT_LENGTH = int(os.getenv("MIN_CONTENT_LENGTH", "10"))
 

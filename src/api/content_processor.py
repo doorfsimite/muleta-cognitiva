@@ -40,14 +40,8 @@ class ContentProcessor:
         self.db_path = Path(database_path)
         # Allow injecting a custom LLM client for testing
         self.llm_client = llm_client or LLMClient()
-        # Backwards-compatible attribute used in some tests
-        self.llm = self.llm_client
 
-        logger.info(f"ContentProcessor initialized with database path: {self.db_path}")
-        # Keep a lightweight print to aid debugging in some CI environments
-        print(f"ContentProcessor initialized with database path: {self.db_path}")
-
-        # Ensure DB schema exists when initializing
+        logger.debug(f"ContentProcessor initialized with database path: {self.db_path}")
         self._ensure_database_schema()
 
     def _ensure_database_schema(self):
@@ -94,31 +88,17 @@ class ContentProcessor:
             # Extract entities and relations using LLM
             logger.info(f"Processing {len(text)} characters of {source_type} content")
             # Use the LLM client's `generate`/`extract_entities_relations` if available
-            if hasattr(self.llm_client, "extract_entities_relations"):
-                extraction_result = self.llm_client.extract_entities_relations(
-                    text, source_type, source_path
-                )
-            elif hasattr(self.llm_client, "generate"):
-                # Build a simple extraction prompt and call generate
-                prompt = (
-                    f"Extract entities and relations from the following text:\n\n{text}"
-                )
-                resp = self.llm_client.generate(prompt)
-                if isinstance(resp, dict):
-                    extraction_result = resp
-                else:
-                    extraction_result = {"entities": [], "relations": []}
-            else:
-                raise ContentProcessingError("No LLM client methods available")
-
+            extraction_result = self.llm_client.extract_entities_relations(
+                text, source_type, source_path
+            )
+            prompt = (
+                f"Extract entities and relations from the following text:\n\n{text}"
+            )
+            extraction_result = self.llm_client.generate(prompt)
+            
             # Validate extraction result
             entities_data = extraction_result.get("entities", [])
             relations_data = extraction_result.get("relations", [])
-
-            if not isinstance(entities_data, list) or not isinstance(
-                relations_data, list
-            ):
-                raise ContentProcessingError("Invalid extraction result format")
 
             # Store in database
             result = self._store_results(

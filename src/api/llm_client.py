@@ -5,14 +5,15 @@ Uses local LLM HTTP endpoint with fallback to rule-based extraction.
 
 import json
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Type
 
 import httpx
+from pydantic import BaseModel
 
 from .config import LLMConfig
-from .fallback_extractor import extract_entities_relations_fallback
 from .prompts import build_extraction_prompt
 from .response_parser import parse_llm_response
+from .schemas import ContentAnalysis
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +36,10 @@ class LLMClient:
         self.config = config or LLMConfig()
 
     def extract_entities_relations(
-        self, text: str, source_type: str = "text", source_path: Optional[str] = None
+        self,
+        text: str,
+        source_type: str = "text",
+        source_path: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Extract entities and relations from text using local LLM.
 
@@ -57,7 +61,7 @@ class LLMClient:
 
         # Try local LLM first
         try:
-            response = self._call_local_llm(prompt)
+            response = self._call_local_llm(prompt, format_model=ContentAnalysis)
             result = parse_llm_response(response)
             logger.info(
                 f"LLM extraction successful: {len(result.get('entities', []))} entities, "
@@ -66,15 +70,15 @@ class LLMClient:
             return result
         except Exception as e:
             logger.exception(f"Local LLM call failed: {e}")
-
-            # Use fallback if enabled
-            if self.config.fallback_enabled:
-                logger.info("Using rule-based fallback extraction")
-                return extract_entities_relations_fallback(text)
-
+            # If fallback disabled or fallback failed, raise LLMError
             raise LLMError(f"Local LLM failed and fallback disabled: {e}")
 
-    def generate(self, prompt: str, model: Optional[str] = None) -> Dict[str, Any]:
+    def generate(
+        self,
+        prompt: str,
+        model: Optional[str] = None,
+        format_model: Optional[Type[BaseModel]] = None,
+    ) -> Dict[str, Any]:
         """Call local LLM HTTP endpoint and return parsed JSON.
 
         Args:
@@ -88,14 +92,23 @@ class LLMClient:
             LLMError: If LLM request fails
         """
         model_name = model or self.config.model
-        response = self._call_local_llm(prompt, model_name)
+        response = self._call_local_llm(prompt, model_name, format_model=format_model)
+
+        # If the client already returned a dict/structured output, return it
+        if isinstance(response, dict):
+            return response
 
         try:
             return json.loads(response)
         except json.JSONDecodeError as e:
             raise LLMError(f"LLM returned invalid JSON: {e}")
 
-    def _call_local_llm(self, prompt: str, model: Optional[str] = None) -> str:
+    def _call_local_llm(
+        self,
+        prompt: str,
+        model: Optional[str] = None,
+        format_model: Optional[Type[BaseModel]] = None,
+    ) -> Any:
         """Make HTTP request to local LLM endpoint.
 
         Args:
@@ -109,28 +122,46 @@ class LLMClient:
             LLMError: If HTTP request fails
         """
         model_name = model or self.config.model
-        payload = {"prompt": prompt, "model": model_name}
+        payload = {"prompt": prompt, "model": model_name, "stream": False}
+
+        # If a Pydantic model (class or instance) is provided, serialize
+        # its JSON schema and forward it as the Ollama/OpenAI `format` field.
+        # if format_model is not None:
+        #     payload["format"] = format_model.model_json_schema()
 
         try:
             with httpx.Client(timeout=self.config.timeout) as client:
                 resp = client.post(self.config.url, json=payload)
                 resp.raise_for_status()
-                data = resp.json()
 
-            # Extract response text from various possible formats
-            if isinstance(data, dict):
-                if "response" in data:
-                    return data["response"]
-                elif "text" in data:
-                    return data["text"]
-                elif "content" in data:
-                    return data["content"]
-                else:
-                    return str(data)
-            elif isinstance(data, str):
-                return data
-            else:
-                return str(data)
+                raw_text = resp.text
+                logger.info(f"LLM raw response: {raw_text}")
+
+                # Try to parse standard JSON responses first
+                try:
+                    data = resp.json()
+                except Exception:
+                    data = None
+
+                if isinstance(data, dict):
+                    # Common LLM HTTP wrappers
+                    for key in ("response", "text", "content", "result", "message"):
+                        if key in data:
+                            # For chat message objects, extract content
+                            if key == "message" and isinstance(data[key], dict):
+                                return data[key].get("content", data)
+                            return data[key]
+
+                    # If dict looks already like the desired response, return it
+                    return data
+
+                # If response body is plain text, try to parse as JSON string
+                text = raw_text or ""
+                try:
+                    return json.loads(text)
+                except Exception:
+                    # Fallback to returning raw text
+                    return text
 
         except httpx.HTTPError as e:
             logger.exception("Local LLM HTTP request failed")
